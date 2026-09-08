@@ -131,7 +131,7 @@ def create_app(config: Config | None = None):
                 await asyncio.to_thread(worker.join,10)
         engine.dispose()
 
-    app = FastAPI(title='Cursor Session Hub', version='0.1.1', lifespan=lifespan)
+    app = FastAPI(title='Cursor Session Hub', version='0.1.2', lifespan=lifespan)
     # Register before the HTTP decorator below so this sits directly around
     # routing. Receive-limit exceptions then reach FastAPI without being
     # wrapped in BaseHTTPMiddleware's request-relay task groups.
@@ -187,6 +187,15 @@ def create_app(config: Config | None = None):
         if user['role'] != 'admin':
             raise HTTPException(403, '需要管理员权限')
 
+    def lock_admins(conn, user):
+        # Serialize administrator changes across API instances on PostgreSQL.
+        active_ids = conn.execute(select(db.users.c.id).where(db.users.c.role == 'admin', db.users.c.active.is_(True), db.users.c.id != 'local').order_by(db.users.c.id).with_for_update()).scalars().all()
+        actor = conn.execute(select(db.users).where(db.users.c.id == user['id'])).mappings().first()
+        if not actor or not actor['active']:
+            raise HTTPException(401, '当前账号已失效，请重新登录')
+        admin(actor)
+        return len(active_ids)
+
     def local_only():
         if config.mode != 'local':
             raise HTTPException(404, '此功能仅可在本地客户端使用')
@@ -220,7 +229,7 @@ def create_app(config: Config | None = None):
         item.pop('metadata_json', None)
         if config.mode=='cloud':
             item.pop('source_id', None)
-        item['owner_name'] = conn.execute(select(db.users.c.display_name).where(db.users.c.id == row['owner_id'])).scalar() or ''
+        item['owner_name'] = conn.execute(select(db.users.c.display_name).where(db.users.c.id == row['owner_id'])).scalar() or '已删除成员'
         item['comment_count'] = conn.execute(select(func.count()).select_from(db.comments).where(db.comments.c.session_id == row['id'])).scalar_one()
         item['favorite'] = bool(conn.execute(select(db.favorites.c.id).where(db.favorites.c.owner_id == user['id'], db.favorites.c.session_id == row['id'])).first())
         return item
@@ -325,17 +334,45 @@ def create_app(config: Config | None = None):
         if 'role' in values and values['role'] not in ('admin', 'member'):
             raise HTTPException(422, '未知角色')
         with admission_lock, engine.begin() as conn:
+            active_admins = lock_admins(conn, user)
             target = conn.execute(select(db.users).where(db.users.c.id == ident)).mappings().first()
             if not target:
                 raise HTTPException(404, '成员不存在')
             if target['role'] == 'admin' and target['active'] and (values.get('active') is False or values.get('role') == 'member'):
-                n = conn.execute(select(func.count()).select_from(db.users).where(db.users.c.role == 'admin', db.users.c.active.is_(True), db.users.c.id != 'local')).scalar_one()
-                if n <= 1:
+                if active_admins <= 1:
                     raise HTTPException(409, '必须保留至少一名有效管理员')
             conn.execute(update(db.users).where(db.users.c.id == ident).values(**values, updated_at=db.now()))
             if values.get('active') is False:
                 auth.revoke_user(conn, ident)
             return auth.public_user(conn.execute(select(db.users).where(db.users.c.id == ident)).mappings().one())
+
+    @router.delete('/members/{ident}')
+    def delete_member(ident: str, user=Depends(require_user)):
+        admin(user)
+        if ident == 'local':
+            raise HTTPException(403, '离线账号不可删除')
+        with admission_lock, engine.begin() as conn:
+            active_admins = lock_admins(conn, user)
+            target = conn.execute(select(db.users).where(db.users.c.id == ident).with_for_update()).mappings().first()
+            if not target:
+                raise HTTPException(404, '成员不存在')
+            if ident == user['id']:
+                raise HTTPException(409, '不能删除当前登录账号')
+            if target['role'] == 'admin' and target['active'] and active_admins <= 1:
+                raise HTTPException(409, '必须保留至少一名有效管理员')
+            active_jobs = select(db.jobs.c.id).where(db.jobs.c.owner_id == ident, db.jobs.c.state.in_(ACTIVE_JOBS))
+            conn.execute(update(db.uploads).where(db.uploads.c.owner_id == ident, or_(db.uploads.c.state.in_(('uploading', 'assembling')), db.uploads.c.job_id.in_(active_jobs))).values(state='cancelled', updated_at=db.now()))
+            conn.execute(update(db.jobs).where(db.jobs.c.owner_id == ident, db.jobs.c.state.in_(ACTIVE_JOBS)).values(cancel_requested=True, updated_at=db.now()))
+            conn.execute(update(db.jobs).where(db.jobs.c.owner_id == ident, db.jobs.c.state.in_(('queued', 'paused'))).values(state='cancelled', error='账号已删除', updated_at=db.now()))
+            conn.execute(update(db.syncs).where(db.syncs.c.owner_id == ident, db.syncs.c.state.in_(('queued', 'pending', 'running', 'syncing', 'processing', 'paused', 'uploading'))).values(state='cancelled', error='账号已删除', updated_at=db.now()))
+            auth.revoke_user(conn, ident)
+            conn.execute(delete(db.favorites).where(db.favorites.c.owner_id == ident))
+            conn.execute(delete(db.invites).where(or_(db.invites.c.created_by == ident, db.invites.c.used_by == ident)))
+            # Keep shared conversations/comments on the immutable owner ID; a
+            # newly registered namesake must never inherit the old ownership.
+            conn.execute(delete(db.users).where(db.users.c.id == ident))
+            db.emit(conn, 'member', owner_id=user['id'], member_id=ident, deleted=True)
+        return {'ok': True, 'id': ident, 'history_retained': True}
 
     @router.post('/invites')
     def create_invite(user=Depends(require_user)):
@@ -674,7 +711,7 @@ def create_app(config: Config | None = None):
 
     def comment_view(conn,row):
         item=dict(row)
-        item['owner_name']=conn.execute(select(db.users.c.display_name).where(db.users.c.id==row['owner_id'])).scalar() or ''
+        item['owner_name']=conn.execute(select(db.users.c.display_name).where(db.users.c.id==row['owner_id'])).scalar() or '已删除成员'
         return item
 
     @router.get('/sessions/{ident}/comments')
@@ -888,7 +925,7 @@ def create_app(config: Config | None = None):
             rows=conn.execute(query).mappings().all();result=page(rows,limit)
             for item in result['items']:
                 item.pop('metadata_json',None)
-                item['owner_name']=conn.execute(select(db.users.c.display_name).where(db.users.c.id==item['owner_id'])).scalar() or ''
+                item['owner_name']=conn.execute(select(db.users.c.display_name).where(db.users.c.id==item['owner_id'])).scalar() or '已删除成员'
                 if item['job_id']:
                     job=conn.execute(select(db.jobs).where(db.jobs.c.id==item['job_id'])).mappings().first()
                     if job: item.update(state=job['state'],error=job['error'],revision_id=job['revision_id'])

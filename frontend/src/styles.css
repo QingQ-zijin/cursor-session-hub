@@ -2044,6 +2044,9 @@ small {
   font-size: 10px;
   height: 31px;
 }
+.member-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.member-detail { min-width: 0; }
+.member-detail > span, .member-detail strong { overflow-wrap: anywhere; }
 .section-title {
   margin: 38px 0 17px;
   font-size: 15px;

@@ -6,7 +6,7 @@ No administrator initialization/reset, SSH, Compose, or direct server DB access.
 HTTP is permitted only through a loopback route (for an independently created
 SSH tunnel); HTTPS certificate validation remains enabled for public endpoints.
 
-Cleanup revokes the test session and disables its two test members. The product
+Cleanup revokes the test session and deletes its two test members. The product
 retains revoked rows/files; this script never purges storage or other records.
 """
 from __future__ import annotations
@@ -279,9 +279,9 @@ def main():
             for key,account in ledger['accounts'].items():
                 try:
                     assert account['id']!=admin_profile['id'] and account['username']=='csh_accept_'+key+'_'+run_id
-                    disabled=checked(admin.patch('/api/v1/members/'+account['id'],json={'active':False}))
-                    assert disabled['username']==account['username'] and disabled['role']=='member' and not disabled['active']
-                    ledger['accounts'][key]['disabled']=True
+                    deleted=admin.delete('/api/v1/members/'+account['id'])
+                    assert deleted.status_code in (200,404), 'Test account deletion failed'
+                    ledger['accounts'][key]['deleted']=True
                     if clients.get(key):assert clients[key].get('/api/v1/auth/me').status_code==401
                 except Exception as error:metrics['cleanup_errors'].append(scrub(error))
             for ident in ledger['invites']:
@@ -294,14 +294,14 @@ def main():
             except Exception as error:metrics['cleanup_errors'].append(scrub(error))
         for client in [*clients.values(),admin]:
             if client:client.close()
-        metrics['test_accounts_disabled']=sum(bool(a.get('disabled')) for a in ledger['accounts'].values())
+        metrics['test_accounts_deleted']=sum(bool(a.get('deleted')) for a in ledger['accounts'].values())
         metrics['test_session_revoked']=bool(ledger.get('session_revoked'))
-        metrics['cleanup_semantics']='Test accounts disabled and share revoked; product-retained rows/files are not physically purged.'
-        metrics['ok']=bool(metrics.get('functional_checks_passed')) and not metrics['cleanup_errors'] and metrics['test_accounts_disabled']==2
+        metrics['cleanup_semantics']='Test accounts deleted and share revoked; retained conversation rows/files are not physically purged.'
+        metrics['ok']=bool(metrics.get('functional_checks_passed')) and not metrics['cleanup_errors'] and metrics['test_accounts_deleted']==2
         metrics['elapsed_seconds']=round(time.time()-metrics['started_at'],3)
         save_ledger()
         result_path=folder/'metrics.json';result_path.write_text(json.dumps(metrics,ensure_ascii=False,indent=2),encoding='utf-8')
-        print(json.dumps({'ok':metrics['ok'],'checks':len(metrics['checks']),'accounts_disabled':metrics['test_accounts_disabled'],'session_revoked':metrics['test_session_revoked'],'metrics':str(result_path),'error':metrics.get('error'),'cleanup_errors':metrics['cleanup_errors']},ensure_ascii=False),flush=True)
+        print(json.dumps({'ok':metrics['ok'],'checks':len(metrics['checks']),'accounts_deleted':metrics['test_accounts_deleted'],'session_revoked':metrics['test_session_revoked'],'metrics':str(result_path),'error':metrics.get('error'),'cleanup_errors':metrics['cleanup_errors']},ensure_ascii=False),flush=True)
     return 0 if metrics['ok'] else 1
 
 if __name__=='__main__':raise SystemExit(main())

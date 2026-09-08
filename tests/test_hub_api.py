@@ -66,6 +66,111 @@ def test_origin_and_logout(cloud):
     assert client.post('/api/v1/auth/logout').status_code==200
     assert client.get('/api/v1/auth/me').status_code==401
 
+
+def test_admin_deletes_account_revokes_access_and_preserves_shared_history(cloud):
+    app,client,headers,admin=cloud
+    alice,ah=member(client,headers,'delete_alice')
+    bob,bh=member(client,headers,'keep_bob')
+    sid,rid,eid=seed(app,alice,1)
+    comment=client.post('/api/v1/sessions/'+sid+'/comments',headers=ah,json={'text':'Keep this shared comment','revision_id':rid,'event_id':eid}).json()
+    assert client.post('/api/v1/favorites',headers=ah,json={'session_id':sid}).status_code==200
+    assert client.post('/api/v1/favorites',headers=bh,json={'session_id':sid}).status_code==200
+    assert client.patch('/api/v1/members/'+alice,headers=headers,json={'role':'admin'}).status_code==200
+    invitation=client.post('/api/v1/invites',headers=ah,json={}).json()
+    assert client.post('/api/v1/auth/login',json={'username':'delete_alice','password':'member-password-123'}).status_code==200
+    with app.state.engine.begin() as conn:
+        for state in ('queued','running','paused'):
+            conn.execute(db.jobs.insert().values(id=db.new_id(),owner_id=alice,kind='export',state=state,session_id=sid))
+        conn.execute(db.jobs.insert().values(id=db.new_id(),owner_id=bob,kind='export',state='queued'))
+        conn.execute(db.uploads.insert().values(id=db.new_id(),owner_id=alice,filename='unfinished',total_bytes=1,sha256='0'*64,session_key='x',device_id='device',state='assembling'))
+        conn.execute(db.syncs.insert().values(id=db.new_id(),owner_id=alice,state='queued'))
+        conn.execute(db.syncs.insert().values(id=db.new_id(),owner_id=alice,state='succeeded'))
+    result=client.delete('/api/v1/members/'+alice,headers=headers)
+    assert result.status_code==200 and result.json()['history_retained'] is True
+    assert client.get('/api/v1/auth/me').status_code==401  # Old browser cookie.
+    assert client.get('/api/v1/auth/me',headers=ah).status_code==401
+    assert client.get('/api/v1/auth/me',headers=bh).status_code==200
+    assert client.post('/api/v1/auth/device-login',json={'username':'delete_alice','password':'member-password-123'}).status_code==401
+    assert alice not in {m['id'] for m in client.get('/api/v1/members',headers=headers).json()['items']}
+    shared=client.get('/api/v1/sessions/'+sid,headers=bh).json()
+    assert shared['owner_id']==alice and shared['owner_name']=='已删除成员' and shared['current_revision']==rid
+    comments=client.get('/api/v1/sessions/'+sid+'/comments',headers=bh).json()['items']
+    assert comments[0]['id']==comment['id'] and comments[0]['owner_name']=='已删除成员'
+    with app.state.engine.connect() as conn:
+        assert conn.execute(select(db.users.c.id).where(db.users.c.id==alice)).first() is None
+        assert conn.execute(select(db.tokens.c.id).where(db.tokens.c.user_id==alice)).first() is None
+        assert conn.execute(select(db.favorites.c.id).where(db.favorites.c.owner_id==alice)).first() is None
+        assert conn.execute(select(db.favorites.c.id).where(db.favorites.c.owner_id==bob)).first()
+        assert conn.execute(select(db.invites.c.id).where((db.invites.c.used_by==alice)|(db.invites.c.created_by==alice))).first() is None
+        rows=conn.execute(select(db.jobs).where(db.jobs.c.owner_id==alice)).mappings().all()
+        assert all(row['cancel_requested'] for row in rows)
+        assert sorted(row['state'] for row in rows)==['cancelled','cancelled','running']
+        assert conn.execute(select(db.jobs.c.state).where(db.jobs.c.owner_id==bob)).scalar_one()=='queued'
+        assert conn.execute(select(db.uploads.c.state).where(db.uploads.c.owner_id==alice)).scalar_one()=='cancelled'
+        assert sorted(conn.execute(select(db.syncs.c.state).where(db.syncs.c.owner_id==alice)).scalars())==['cancelled','succeeded']
+    assert client.post('/api/v1/auth/register',json={'token':invitation['token'],'username':'unused','display_name':'Unused','password':'member-password-123'}).status_code==410
+    replacement,new_headers=member(client,headers,'delete_alice')
+    assert replacement!=alice
+    assert client.patch('/api/v1/sessions/'+sid,headers=new_headers,json={'title':'Cannot inherit old ownership'}).status_code==403
+    assert client.delete('/api/v1/members/'+alice,headers=headers).status_code==404
+
+
+def test_account_deletion_requires_admin_and_never_deletes_self_or_local(cloud):
+    app,client,headers,admin=cloud
+    member_id,mh=member(client,headers,'regular_member')
+    assert client.delete('/api/v1/members/'+member_id).status_code==401
+    assert client.delete('/api/v1/members/'+admin,headers=mh).status_code==403
+    assert client.delete('/api/v1/members/'+member_id,headers=mh).status_code==403
+    assert client.delete('/api/v1/members/'+admin,headers=headers).status_code==409
+    assert client.delete('/api/v1/members/local',headers=headers).status_code==403
+    assert client.get('/api/v1/auth/me',headers=headers).status_code==200
+
+
+def test_inflight_admin_cannot_delete_remaining_admin_after_own_deletion(cloud):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from fastapi import Request
+    app,client,headers,admin=cloud
+    other,other_headers=member(client,headers,'second_admin')
+    assert client.patch('/api/v1/members/'+other,headers=headers,json={'role':'admin'}).status_code==200
+    barrier=threading.Barrier(2)
+    original=app.state.require_user
+    def same_time(request: Request):
+        user=original(request)
+        if request.method=='DELETE':barrier.wait(timeout=5)
+        return user
+    app.dependency_overrides[original]=same_time
+    try:
+        with ThreadPoolExecutor(2) as pool:
+            a=pool.submit(client.delete,'/api/v1/members/'+other,headers=headers)
+            b=pool.submit(client.delete,'/api/v1/members/'+admin,headers=other_headers)
+            codes=[a.result().status_code,b.result().status_code]
+        assert codes.count(200)==1 and all(c in (200,401,409) for c in codes)
+    finally:app.dependency_overrides.clear()
+    with app.state.engine.connect() as conn:
+        active=conn.execute(select(db.users.c.id).where(db.users.c.role=='admin',db.users.c.active.is_(True),db.users.c.id!='local')).all()
+        assert len(active)==1
+
+
+def test_deleting_member_during_upload_assembly_prevents_late_publication(cloud,monkeypatch):
+    from pathlib import Path
+    app,client,headers,admin=cloud
+    owner,oh=member(client,headers,'upload_member')
+    data=b'bounded upload example';digest=hashlib.sha256(data).hexdigest()
+    upload=client.post('/api/v1/uploads',headers=oh,json={'filename':'session.csh','total_bytes':len(data),'sha256':digest,'session_key':'session','device_id':'device'}).json()
+    assert client.put('/api/v1/uploads/'+upload['id']+'/chunks/0',headers={**oh,'X-Chunk-SHA256':digest},content=data).status_code==200
+    target=app.state.config.home/'uploads'/upload['id']/'bundle.zip'
+    original=Path.open
+    def remove_before_assembly(path,*args,**kwargs):
+        if path==target and args and args[0]=='wb':
+            assert client.delete('/api/v1/members/'+owner,headers=headers).status_code==200
+        return original(path,*args,**kwargs)
+    monkeypatch.setattr(Path,'open',remove_before_assembly)
+    assert client.post('/api/v1/uploads/'+upload['id']+'/complete',headers=oh).status_code==409
+    with app.state.engine.connect() as conn:
+        assert conn.execute(select(db.jobs.c.id).where(db.jobs.c.owner_id==owner)).first() is None
+        assert conn.execute(select(db.sessions.c.id).where(db.sessions.c.owner_id==owner)).first() is None
+
 def test_owner_write_comments_anchors_favorites_and_revocation(cloud):
     app,client,admin_headers,admin=cloud
     alice,ah=member(client,admin_headers,'alice')

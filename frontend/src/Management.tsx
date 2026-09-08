@@ -15,6 +15,7 @@ import {
   Play,
   RotateCcw,
   UserPlus,
+  Trash2,
   AlertCircle,
   CheckCircle2,
   Circle,
@@ -880,7 +881,9 @@ export function AdminPanel({
   const [members, setMembers] = useState<User[]>([]),
     [invites, setInvites] = useState<Invite[]>([]),
     [newInvite, setNewInvite] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [deleteTarget, setDeleteTarget] = useState<User | null>(null),
+    [deleting, setDeleting] = useState(false);
   async function load() {
     try {
       const [m, i] = await Promise.all([
@@ -916,6 +919,20 @@ export function AdminPanel({
       await load();
     } catch (e) {
       onError(e);
+    }
+  }
+  async function removeMember() {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await api.del('/members/' + deleteTarget.id);
+      setDeleteTarget(null);
+      onNotice('账号已删除，历史会话和评论已保留');
+      await load();
+    } catch (error) {
+      onError(error);
+    } finally {
+      setDeleting(false);
     }
   }
   return (
@@ -979,17 +996,36 @@ export function AdminPanel({
             <span className={"status " + (m.active ? "succeeded" : "paused")}>
               {m.active ? "正常" : "已停用"}
             </span>
-            <button
-              className="button"
-              disabled={m.id === user.id}
-              onClick={() => void update(m.id, { active: !m.active })}
-            >
-              {m.active ? "停用" : "启用"}
-            </button>
+            <div className="member-actions">
+              <button
+                className="button"
+                disabled={m.id === user.id}
+                onClick={() => void update(m.id, { active: !m.active })}
+              >
+                {m.active ? "停用" : "启用"}
+              </button>
+              <button className="button danger" disabled={m.id === user.id}
+                title={m.id === user.id ? '不能删除当前登录账号' : '删除此账号，保留历史记录'}
+                aria-label={'删除账号 ' + m.username} onClick={() => setDeleteTarget(m)}>
+                <Trash2 size={13} />删除
+              </button>
+            </div>
           </div>
         ))}
       </div>
       <h2 className="section-title">邀请记录</h2>
+      {deleteTarget && (
+        <Modal title="删除成员账号" onClose={() => { if (!deleting) setDeleteTarget(null); }}>
+          <p className="modal-copy">删除 <strong>{deleteTarget.display_name}</strong>（@{deleteTarget.username}）后，该账号将立即退出，无法再登录。</p>
+          <p className="modal-copy">登录凭证、个人收藏和关联邀请会被清理。已同步的会话和评论保留，并显示为“已删除成员”。重新注册同名账号不会继承旧记录的所有权。</p>
+          <footer className="modal-footer">
+            <button className="button" disabled={deleting} onClick={() => setDeleteTarget(null)}>取消</button>
+            <button className="button danger" disabled={deleting} onClick={() => void removeMember()}>
+              {deleting ? <Loader2 size={14} className="spin" /> : <Trash2 size={14} />}确认删除账号
+            </button>
+          </footer>
+        </Modal>
+      )}
       <div className="invite-list">
         {!invites.length ? (
           <p className="muted">暂时没有邀请。</p>
