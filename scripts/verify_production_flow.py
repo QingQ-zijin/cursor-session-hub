@@ -33,12 +33,12 @@ from hub.bundles import build_bundle
 from hub.config import Config
 from hub.ingest import ingest_path
 
-def endpoint(value):
+def endpoint(value, allow_insecure_http=False):
     value=value.strip().rstrip('/')
     parts=urlsplit(value)
     if not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
         raise ValueError('Use a server URL without credentials, query, or fragment')
-    if parts.scheme!='https' and not (parts.scheme=='http' and parts.hostname in ('localhost','127.0.0.1','::1')):
+    if parts.scheme!='https' and not (parts.scheme=='http' and (parts.hostname in ('localhost','127.0.0.1','::1') or allow_insecure_http)):
         raise ValueError('Use HTTPS, or the loopback URL of an independently established SSH tunnel')
     return value
 
@@ -120,9 +120,10 @@ def main():
     parser.add_argument('--admin-credentials',type=Path)
     parser.add_argument('--ca-file',type=Path,help='Optional trusted private CA; never disables certificate validation')
     parser.add_argument('--job-timeout',type=int,default=90)
+    parser.add_argument('--allow-insecure-http',action='store_true',help='Only for an explicitly approved public HTTP internal test')
     args=parser.parse_args()
     try:
-        url=endpoint(args.url)
+        url=endpoint(args.url,args.allow_insecure_http)
         if args.admin_credentials:
             supplied=json.loads(args.admin_credentials.read_text(encoding='utf-8'))
             supplied=supplied.get('admin',supplied)
@@ -136,7 +137,7 @@ def main():
     run_id=time.strftime('%Y%m%d')+'_'+secrets.token_hex(5)
     folder=ROOT/'.runtime/production-acceptance'/run_id;folder.mkdir(parents=True,mode=0o700)
     ledger={'version':1,'run_id':run_id,'server_url':url,'accounts':{},'invites':[],'jobs':[]}
-    metrics={'ok':False,'run_id':run_id,'server_url':url,'started_at':time.time(),'checks':[],'cleanup_errors':[]}
+    metrics={'ok':False,'run_id':run_id,'server_url':url,'approved_http_test':args.allow_insecure_http,'started_at':time.time(),'checks':[],'cleanup_errors':[]}
     secrets_to_hide=[admin_credentials['password']]
     clients={};admin=None;admin_profile=None;session_revoked=False
     verify=ssl.create_default_context(cafile=str(args.ca_file)) if args.ca_file else True

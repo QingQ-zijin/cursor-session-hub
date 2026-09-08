@@ -20,14 +20,20 @@ from . import db
 SERVICE = 'CursorSessionHub'
 
 
-def normalize_url(value):
+def normalize_url(value, *, allow_insecure_http=False):
     value = str(value or '').strip().rstrip('/')
     parts = urlsplit(value)
     if parts.username or parts.password or parts.query or parts.fragment or not parts.hostname:
         raise ValueError('请输入不含账号、参数的服务器地址。')
-    if parts.scheme != 'https' and not (parts.scheme == 'http' and parts.hostname in ('localhost', '127.0.0.1', '::1')):
-        raise ValueError('团队服务器必须使用 HTTPS；仅本机测试允许 HTTP。')
+    if parts.scheme != 'https' and not (parts.scheme == 'http' and (parts.hostname in ('localhost', '127.0.0.1', '::1') or allow_insecure_http is True)):
+        raise ValueError('请使用 HTTPS；如需公网 HTTP 内测，请先勾选允许 HTTP 连接。')
     return value
+
+
+def configured_url(saved, value=None):
+    value = str(value or saved.get('url') or '').strip().rstrip('/')
+    # HTTP consent belongs to exactly the configured URL, never another queued target.
+    return normalize_url(value, allow_insecure_http=saved.get('allow_insecure_http') is True and value == saved.get('url'))
 
 
 def _read_config(config):
@@ -72,7 +78,7 @@ def set_token(config, url, token):
 
 def _credentials(config, url=None):
     saved = _read_config(config)
-    url = normalize_url(url or saved.get('url'))
+    url = configured_url(saved, url)
     token = get_token(config, url)
     if not token:
         raise HTTPException(401, '请先登录团队服务器。')
@@ -104,11 +110,11 @@ def run_sync_job(config, job_id):
         job = dict(connection.execute(select(db.jobs).where(db.jobs.c.id == job_id)).mappings().one())
         session = dict(connection.execute(select(db.sessions).where(db.sessions.c.id == job['session_id'])).mappings().one())
     payload = job['payload_json'] or {}
-    url, headers = _credentials(config, payload.get('server_url'))
     checkpoint = dict(job.get('checkpoint_json') or {})
     bundle = config.home / 'bundles' / (job_id + '.csh')
     sync_id = payload.get('sync_id')
     try:
+        url, headers = _credentials(config, payload.get('server_url'))
         with httpx.Client(timeout=httpx.Timeout(60, connect=10), headers=headers) as client:
             me = _checked(client.get(url + '/api/v1/auth/me'))
             if me.get('id') != payload.get('remote_user_id'):
@@ -204,24 +210,25 @@ def create_router(config, engine, require_user):
     @router.get('/config')
     def read_config(user=Depends(local)):
         saved = _read_config(config)
-        return {'url': saved.get('url', '')}
+        return {'url': saved.get('url', ''), 'allow_insecure_http': saved.get('allow_insecure_http') is True}
 
     @router.put('/config')
     def configure(body: dict, user=Depends(local)):
         try:
-            url = normalize_url(body.get('url'))
+            url = normalize_url(body.get('url'), allow_insecure_http=body.get('allow_insecure_http') is True)
         except ValueError as error:
             raise HTTPException(400, str(error)) from error
         saved = _read_config(config)
-        saved.update(url=url, device_id=saved.get('device_id') or db.new_id())
+        allow_http = url.startswith('http://') and body.get('allow_insecure_http') is True
+        saved.update(url=url, allow_insecure_http=allow_http, device_id=saved.get('device_id') or db.new_id())
         _save_config(config, saved)
-        return {'url': url}
+        return {'url': url, 'allow_insecure_http': allow_http}
 
     @router.post('/login')
     def login(body: dict, user=Depends(local)):
         saved = _read_config(config)
         try:
-            url = normalize_url(saved.get('url'))
+            url = configured_url(saved)
             with httpx.Client(timeout=20) as client:
                 data = _checked(client.post(url + '/api/v1/auth/device-login', json={'username': body.get('username'), 'password': body.get('password')}))
             set_token(config, url, data['token'])
@@ -249,7 +256,7 @@ def create_router(config, engine, require_user):
             if error.status_code == 401:
                 return {'user': None, 'url': saved['url']}
             raise
-        except (RuntimeError, httpx.HTTPError) as error:
+        except (ValueError, RuntimeError, httpx.HTTPError) as error:
             raise HTTPException(503, str(error)) from error
 
     @router.post('/logout')
@@ -260,7 +267,7 @@ def create_router(config, engine, require_user):
                 url, headers = _credentials(config)
                 with httpx.Client(timeout=5) as client:
                     client.post(url + '/api/v1/auth/logout', headers=headers)
-            except (HTTPException, httpx.HTTPError, RuntimeError):
+            except (HTTPException, httpx.HTTPError, ValueError, RuntimeError):
                 pass
             set_token(config, saved['url'], None)
         return {'ok': True}
@@ -314,7 +321,7 @@ def create_router(config, engine, require_user):
             raise HTTPException(400, 'Invalid API path')
         if path == 'auth/register' and request.method == 'POST':
             try:
-                url = normalize_url(_read_config(config).get('url'))
+                url = configured_url(_read_config(config))
             except ValueError as error:
                 raise HTTPException(400, str(error)) from error
             headers = {}

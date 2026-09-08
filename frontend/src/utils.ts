@@ -16,6 +16,24 @@ export function stringify(value: unknown): string {
   if (value == null) return "";
   return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
+export async function copyText(value: string) {
+  if (window.isSecureContext && navigator.clipboard) {
+    try { await navigator.clipboard.writeText(value); return; } catch { /* Try the user-gesture fallback. */ }
+  }
+  const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const field = document.createElement("textarea");
+  field.value = value;
+  field.readOnly = true;
+  field.style.cssText = "position:fixed;left:-10000px;top:0;opacity:0";
+  document.body.appendChild(field);
+  field.select();
+  try {
+    if (!document.execCommand("copy")) throw new Error("复制未成功，请手动选择链接复制。");
+  } finally {
+    field.remove();
+    previous?.focus({ preventScroll: true });
+  }
+}
 export function boundedExpanded(current: number[], next: number, max = 3) {
   if (current.includes(next)) return current.filter((n) => n !== next);
   return [...current, next].slice(-max);

@@ -23,7 +23,7 @@ import {
 import { asPage, client, download, post, query, request } from "./api";
 import type { Client } from "./api";
 import type { Invite, Job, Page, Remote, Session, Source, User } from "./types";
-import { bytes, displayDate, label } from "./utils";
+import { bytes, copyText, displayDate, label } from "./utils";
 
 export function Modal({
   title,
@@ -281,6 +281,7 @@ export function Login({
   initialToken?: string;
 }) {
   const [url, setUrl] = useState(""),
+    [allowHttp, setAllowHttp] = useState(false),
     [username, setUsername] = useState(""),
     [password, setPassword] = useState(""),
     [displayName, setDisplayName] = useState(""),
@@ -291,8 +292,8 @@ export function Login({
     [error, setError] = useState("");
   useEffect(() => {
     if (local)
-      void request<Remote>("/remote/me")
-        .then((r) => setUrl(r.url || r.server_url || ""))
+      void request<Remote>("/remote/config")
+        .then((r) => { setUrl(r.url || r.server_url || ""); setAllowHttp(r.allow_insecure_http === true); })
         .catch(() => {});
   }, [local]);
   async function submit() {
@@ -302,7 +303,7 @@ export function Login({
       if (local) {
         await request("/remote/config", {
           method: "PUT",
-          body: JSON.stringify({ url }),
+          body: JSON.stringify({ url, allow_insecure_http: allowHttp }),
         });
         if (register)
           await post("/remote/api/auth/register", {
@@ -364,9 +365,15 @@ export function Login({
                 type="url"
                 placeholder="https://sessions.example.com"
                 value={url}
-                onChange={(e) => setUrl(e.target.value)}
+                onChange={(e) => { setUrl(e.target.value); setAllowHttp(false); }}
                 autoComplete="url"
               />
+            </label>
+          )}
+          {local && /^http:\/\//i.test(url.trim()) && (
+            <label className="http-consent">
+              <input type="checkbox" checked={allowHttp} onChange={(e) => setAllowHttp(e.target.checked)} />
+              <span>允许 HTTP 内测连接<small>仅对此地址生效；登录密码和同步内容不经过 HTTPS 加密。</small></span>
             </label>
           )}
           {register && (
@@ -935,8 +942,7 @@ export function AdminPanel({
             <button
               className="button"
               onClick={() =>
-                void navigator.clipboard
-                  .writeText(newInvite)
+                void copyText(newInvite)
                   .then(() => onNotice("邀请链接已复制"))
                   .catch(onError)
               }

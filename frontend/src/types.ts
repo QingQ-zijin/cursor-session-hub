@@ -107,6 +107,7 @@ export type Revision = {
   event_count?: number;
 };
 export type Remote = {
+  allow_insecure_http?: boolean;
   url?: string;
   server_url?: string;
   connected?: boolean;

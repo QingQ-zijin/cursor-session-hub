@@ -1760,6 +1760,10 @@ small {
   font-size: 12px;
   padding: 10px 12px;
 }
+.login-form form > .http-consent { flex-direction: row; align-items: flex-start; gap: 9px; }
+.login-form .http-consent input { width: 15px; height: 15px; margin: 2px 0 0; padding: 0; flex-shrink: 0; }
+.http-consent span { line-height: 1.6; }
+.http-consent small { display: block; color: var(--muted); font-size: 11px; }
 .password-field {
   display: flex;
   border: 1px solid var(--line);

@@ -131,7 +131,7 @@ def create_app(config: Config | None = None):
                 await asyncio.to_thread(worker.join,10)
         engine.dispose()
 
-    app = FastAPI(title='Cursor Session Hub', version='0.1.0', lifespan=lifespan)
+    app = FastAPI(title='Cursor Session Hub', version='0.1.1', lifespan=lifespan)
     # Register before the HTTP decorator below so this sits directly around
     # routing. Receive-limit exceptions then reach FastAPI without being
     # wrapped in BaseHTTPMiddleware's request-relay task groups.

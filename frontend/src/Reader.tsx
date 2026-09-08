@@ -35,6 +35,7 @@ import type {
 } from "./types";
 import {
   boundedExpanded,
+  copyText,
   displayDate,
   roundPreview,
   safeLink,
@@ -1007,8 +1008,7 @@ export function Reader({
                 )}
                 <button
                   onClick={() => {
-                    void navigator.clipboard
-                      .writeText(
+                    void copyText(
                         location.origin +
                           location.pathname +
                           "#session=" +

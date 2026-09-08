@@ -34,6 +34,41 @@ def test_https_and_localhost_urls():
     assert remote.normalize_url('http://127.0.0.1:8000/')=='http://127.0.0.1:8000'
     assert remote.normalize_url('http://[::1]:8000')=='http://[::1]:8000'
 
+
+@pytest.mark.parametrize('consent',[False,None,'true','false',1])
+def test_public_http_requires_explicit_boolean_consent(installation,consent):
+    cfg,app,client,headers,vault=installation
+    response=client.put('/api/v1/remote/config',headers=headers,json={'url':'http://team.example.com:8000','allow_insecure_http':consent})
+    assert response.status_code==400
+    assert not (cfg.home/'remote.json').exists()
+
+
+def test_public_http_login_allowed_only_for_consented_address(installation,monkeypatch):
+    cfg,app,client,headers,vault=installation
+    url='http://team.example.com:8000'
+    def server(request):
+        assert str(request.url).startswith(url+'/api/v1/')
+        if request.url.path.endswith('device-login'):
+            return httpx.Response(200,json={'user':{'id':'test-member'},'token':'private-token'})
+        assert request.headers['authorization']=='Bearer private-token'
+        return httpx.Response(200,json={'id':'test-member'})
+    intercept_sync(monkeypatch,server)
+    assert client.put('/api/v1/remote/config',headers=headers,json={'url':url,'allow_insecure_http':True}).status_code==200
+    assert client.post('/api/v1/remote/login',headers=headers,json={'username':'member','password':'request-secret-only'}).status_code==200
+    assert client.get('/api/v1/remote/me',headers=headers).json()['user']['id']=='test-member'
+    saved=json.loads((cfg.home/'remote.json').read_text())
+    assert saved['allow_insecure_http'] is True
+    assert 'private-token' not in json.dumps(saved) and 'request-secret-only' not in json.dumps(saved)
+    with pytest.raises(ValueError):remote.configured_url(saved,'http://different.example.com:8000')
+    assert client.put('/api/v1/remote/config',headers=headers,json={'url':'http://different.example.com:8000'}).status_code==400
+    assert client.put('/api/v1/remote/config',headers=headers,json={'url':'https://team.example.com','allow_insecure_http':True}).status_code==200
+    assert client.get('/api/v1/remote/config',headers=headers).json()['allow_insecure_http'] is False
+
+
+@pytest.mark.parametrize('url',['file:///tmp/example','ftp://example.com','https://user:pass@example.com','http://example.com/?token=secret'])
+def test_http_consent_never_allows_other_unsafe_urls(url):
+    with pytest.raises(ValueError):remote.normalize_url(url,allow_insecure_http=True)
+
 def test_only_os_vault_persists_credentials_and_logout(installation,monkeypatch):
     cfg,app,client,headers,vault=installation
     observed=[]

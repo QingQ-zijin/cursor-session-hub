@@ -63,6 +63,7 @@ jobs:
             ~/.cargo/git
             desktop/target
           key: rust-${{ matrix.target }}-${{ hashFiles('desktop/Cargo.lock') }}
+          restore-keys: rust-${{ matrix.target }}-
       - name: Dependencies and web assets
         if: inputs.platform == 'all' || inputs.platform == matrix.key
         shell: bash
