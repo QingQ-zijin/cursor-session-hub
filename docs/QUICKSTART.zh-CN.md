@@ -1,4 +1,4 @@
-# Cursor Session Hub 0.1.1 内测版
+# Cursor Session Hub 0.1.2 内测版
 
 无需安装 Python、Node.js 或 Rust。先使用离线本地库；准备好服务器后，再登录团队空间，手动同步选定记录。
 
@@ -6,9 +6,9 @@
 
 | 电脑 | 文件 |
 |---|---|
-| Windows 64位 | Cursor Session Hub_0.1.1_x64-setup.exe |
-| Mac M系列芯片 | Cursor Session Hub_0.1.1_aarch64.dmg |
-| Mac Intel芯片 | Cursor Session Hub_0.1.1_x64.dmg |
+| Windows 64位 | Cursor Session Hub_0.1.2_x64-setup.exe |
+| Mac M系列芯片 | Cursor Session Hub_0.1.2_aarch64.dmg |
+| Mac Intel芯片 | Cursor Session Hub_0.1.2_x64.dmg |
 
 Windows 双击安装程序。Mac 打开对应 DMG，将应用拖入 Applications，再从 Applications 启动。Mac 安装目标为 macOS 13 或更新版本；本次实际构建与启动检查分别运行于 macOS 14 Apple Silicon 和 macOS 15 Intel。
 
@@ -35,7 +35,7 @@ Windows 数据在 `%LOCALAPPDATA%\CursorSessionHub`；Mac 数据在 `~/Library/A
 
 ## 构建与校验
 
-三个安装包的应用代码提交为 `bde53fe11d9c1bb190525e27268e2b9679f61698`，来自 [成功的三平台CI运行](https://github.com/QingQ-zijin/cursor-session-hub/actions/runs/34246661041)。交付目录中的 `SHA256SUMS.txt` 可用于验证文件未在传输中改变。Windows 可运行 `Get-FileHash -Algorithm SHA256 -LiteralPath '安装包完整路径'`；Mac 可运行 `shasum -a 256 '安装包完整路径'`。
+三个安装包的应用代码提交为 `135c26af850a280c3603f7b1b35b4a6a2e6fd4f8`，来自 [成功的三平台CI运行](https://github.com/QingQ-zijin/cursor-session-hub/actions/runs/34254641088)。交付目录中的 `SHA256SUMS.txt` 可用于验证文件未在传输中改变。Windows 可运行 `Get-FileHash -Algorithm SHA256 -LiteralPath '安装包完整路径'`；Mac 可运行 `shasum -a 256 '安装包完整路径'`。
 
 本版已验证实际本机 Docker 的双账号同步、阅读、评论和导出，及5成员阅读与2上传同时进行。三平台安装包均通过目标系统的冻结解析器和安装后启动检查；团队实际电脑的完整使用流程仍应在内测中确认。详细结果见 [VERIFICATION.md](VERIFICATION.md)。
 
