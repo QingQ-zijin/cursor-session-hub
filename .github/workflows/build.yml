@@ -54,7 +54,8 @@ jobs:
         if: inputs.platform == 'all' || inputs.platform == matrix.key
         shell: bash
         run: rustup toolchain install stable --profile minimal && rustup default stable
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cargo-cache
         if: inputs.platform == 'all' || inputs.platform == matrix.key
         with:
           path: |
@@ -86,6 +87,21 @@ jobs:
       - name: Smoke test packaged desktop
         if: inputs.platform == 'all' || inputs.platform == matrix.key
         run: python scripts/smoke_desktop.py --target ${{ matrix.target }}
+      - uses: actions/cache/save@v4
+        if: always() && (inputs.platform == 'all' || inputs.platform == matrix.key) && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/target
+          key: rust-${{ matrix.target }}-${{ hashFiles('desktop/Cargo.lock') }}
+      - uses: actions/upload-artifact@v4
+        if: failure() && (inputs.platform == 'all' || inputs.platform == matrix.key)
+        with:
+          name: smoke-debug-${{ matrix.key }}
+          path: .runtime/smoke-*.json
+          if-no-files-found: ignore
+          retention-days: 3
       - uses: actions/upload-artifact@v4
         if: (inputs.platform == 'all' || inputs.platform == matrix.key) && success()
         with:

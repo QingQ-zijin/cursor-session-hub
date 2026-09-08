@@ -164,6 +164,13 @@ fn terminate_owned_backend(state: &CoreState) {
 }
 
 fn main() {
+    std::panic::set_hook(Box::new(|info| {
+        let message = info.to_string();
+        if let Ok(path) = std::env::var("CSH_SMOKE_OUTPUT") {
+            let _ = std::fs::write(path, json!({"ok":false,"panic":message}).to_string());
+        }
+        eprintln!("Cursor Session Hub startup error: {message}");
+    }));
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -179,6 +186,7 @@ fn main() {
             let readiness = tauri::async_runtime::block_on(async {
                 tokio::time::timeout(Duration::from_secs(60), async {
                     let mut pending = String::new();
+                    let mut diagnostics = String::new();
                     while let Some(event) = events.recv().await {
                         match event {
                             CommandEvent::Stdout(bytes) => {
@@ -192,7 +200,10 @@ fn main() {
                                 }
                                 if pending.len() > 262144 { return Err("Startup output too large".to_owned()); }
                             },
-                            CommandEvent::Terminated(_) => return Err("Local service exited before becoming ready".to_owned()),
+                            CommandEvent::Stderr(bytes) => {
+                                if diagnostics.len() < 32768 { diagnostics.push_str(&String::from_utf8_lossy(&bytes)); }
+                            },
+                            CommandEvent::Terminated(_) => return Err(format!("Local service exited before becoming ready: {diagnostics}")),
                             _ => {},
                         }
                     }

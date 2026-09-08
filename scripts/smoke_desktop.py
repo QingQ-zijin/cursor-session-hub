@@ -33,7 +33,12 @@ def main():
     with (app/'Contents/Info.plist').open('rb') as source: executable=plistlib.load(source)['CFBundleExecutable']
     binary=app/'Contents/MacOS'/executable
    binary=binary.resolve(strict=True)
-   subprocess.run([str(binary),'--smoke-test'],env=env,timeout=120,check=True)
+   try:
+    subprocess.run([str(binary),'--smoke-test'],env=env,timeout=120,check=True)
+   except (subprocess.CalledProcessError,subprocess.TimeoutExpired):
+    if output.exists():print('Desktop failure details:',output.read_text(encoding='utf-8'),flush=True)
+    print('Installed executable directory:',[p.name for p in binary.parent.iterdir()],flush=True)
+    raise
    assert output.is_file() and json.loads(output.read_text())['ok'],'Desktop smoke output missing'
   finally:
    if mounted:subprocess.run(['hdiutil','detach',str(mount)],timeout=30,check=False,stdout=subprocess.DEVNULL)
