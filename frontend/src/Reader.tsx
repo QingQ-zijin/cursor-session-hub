@@ -21,7 +21,7 @@ import {
   Image as ImageIcon,
   Loader2,
 } from "lucide-react";
-import { asPage, download, fetchAsset, query } from "./api";
+import { asPage, download, fetchAsset, query, sessionLink } from "./api";
 import type { Client } from "./api";
 import type {
   Comment,
@@ -1008,12 +1008,8 @@ export function Reader({
                 )}
                 <button
                   onClick={() => {
-                    void copyText(
-                        location.origin +
-                          location.pathname +
-                          "#session=" +
-                          session.id,
-                      )
+                    void sessionLink(api, session.id, user.id === "local")
+                      .then(copyText)
                       .then(() => {
                         setCopy(true);
                         setTimeout(() => setCopy(false), 2000);

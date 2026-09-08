@@ -50,6 +50,7 @@ import type {
 } from "./types";
 import { displayDate, label, sessionStatus } from "./utils";
 import { Reader } from "./Reader";
+import { Updates } from "./Updates";
 import {
   AdminPanel,
   JobsPanel,
@@ -60,6 +61,7 @@ import {
 } from "./Management";
 
 type Nav = "local" | "team" | "favorites" | "jobs" | "admin";
+const initialScope = new URLSearchParams(location.hash.slice(1)).get("scope") === "team" ? "team" : "local";
 const localUser: User = {
   id: "local",
   username: "local",
@@ -71,8 +73,8 @@ export default function App() {
   const [caps, setCaps] = useState<Capabilities | null>(null),
     [me, setMe] = useState<User | null>(null),
     [remoteMe, setRemoteMe] = useState<User | null>(null),
-    [nav, setNav] = useState<Nav>("local"),
-    [scope, setScope] = useState<"local" | "team">("local"),
+    [nav, setNav] = useState<Nav>(initialScope),
+    [scope, setScope] = useState<"local" | "team">(initialScope),
     [bootError, setBootError] = useState(""),
     [ready, setReady] = useState(false),
     [theme, setTheme] = useState(localStorage.getItem("csh-theme") || "light"),
@@ -89,7 +91,8 @@ export default function App() {
     [dateTo, setDateTo] = useState(""),
     [filterOpen, setFilterOpen] = useState(false),
     [members, setMembers] = useState<User[]>([]),
-    [busy, setBusy] = useState(false),
+    [busy, setBusy] = useState(true),
+    [listError, setListError] = useState(""),
     [importBusy, setImportBusy] = useState(false),
     [sourceOpen, setSourceOpen] = useState(false),
     [syncSessions, setSyncSessions] = useState<Session[] | null>(null),
@@ -106,6 +109,9 @@ export default function App() {
     [revoke, setRevoke] = useState<Session | null>(null),
     [favorites, setFavorites] = useState<Favorite[]>([]);
   const uploadInput = useRef<HTMLInputElement>(null),
+    viewGeneration = useRef(0),
+    selectionGeneration = useRef(0),
+    initialSession = useRef(new URLSearchParams(location.hash.slice(1)).get("session")),
     noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     selectedRef = useRef<Session | null>(selected);
   useEffect(() => {
@@ -133,6 +139,10 @@ export default function App() {
   const team = scope === "team" || !local;
   const api = useMemo(() => client(!!local && team), [local, team]);
   const activeUser = local ? (team ? remoteMe : localUser) : me;
+  const generation = viewGeneration.current;
+  const scopedError = (error: unknown) => {
+    if (generation === viewGeneration.current) onError(error);
+  };
   const inviteToken = new URLSearchParams(location.search).get("invite") || "";
   useEffect(() => {
     void initializeTransport()
@@ -174,8 +184,10 @@ export default function App() {
   }, [search]);
   useEffect(() => {
     if (!caps || !activeUser) return;
-    return subscribeActivity(
+    let valid = true;
+    const unsubscribe = subscribeActivity(
       (value) => {
+        if (!valid || generation !== viewGeneration.current) return;
         const activity = value as {
           kind?: string;
           session_id?: string;
@@ -189,25 +201,29 @@ export default function App() {
           setVersionSignal((v) => v + 1);
         if (activity.kind !== "heartbeat") setHasUpdates(true);
       },
-      setLive,
+      (value) => { if (valid && generation === viewGeneration.current) setLive(value); },
       api.path("/activity"),
     );
-  }, [caps, activeUser?.id, api]);
+    return () => { valid = false; unsubscribe(); };
+  }, [caps, activeUser?.id, api, generation]);
   useEffect(() => {
     if (!activeUser || !team) {
       setMembers([]);
       return;
     }
+    let valid = true;
     void api
       .get<Page<User>>("/members")
-      .then((r) => setMembers(asPage(r).items))
-      .catch(onError);
-  }, [api, activeUser?.id, team]);
+      .then((r) => { if (valid && generation === viewGeneration.current) setMembers(asPage(r).items); })
+      .catch((e) => { if (valid) scopedError(e); });
+    return () => { valid = false; };
+  }, [api, activeUser?.id, team, generation]);
   useEffect(() => {
     if (!caps || !activeUser || !["local", "team", "favorites"].includes(nav))
       return;
     let valid = true;
     setBusy(true);
+    setListError("");
     const qs = query({
       cursor: history[history.length - 1],
       limit: 50,
@@ -225,21 +241,23 @@ export default function App() {
     api
       .get<Page<Session>>("/sessions" + qs)
       .then((p) => {
-        if (valid) {
+        if (valid && generation === viewGeneration.current) {
           setSessions(asPage(p).items);
           setNext(p.next_cursor || null);
         }
       })
       .catch((e) => {
-        if (valid) {
+        if (valid && generation === viewGeneration.current) {
+          setSessions([]);
+          setNext(null);
           if (e instanceof ApiError && e.status === 401) {
             if (local && team) setRemoteMe(null);
             else if (!local) setMe(null);
-          } else onError(e);
+          } else setListError(e instanceof Error ? e.message : String(e));
         }
       })
       .finally(() => {
-        if (valid) setBusy(false);
+        if (valid && generation === viewGeneration.current) setBusy(false);
       });
     return () => {
       valid = false;
@@ -259,21 +277,56 @@ export default function App() {
   ]);
   useEffect(() => {
     if (nav !== "favorites" || !activeUser) return;
+    let valid = true;
     void api
       .get<Page<Favorite>>("/favorites")
-      .then((r) => setFavorites(r.items))
-      .catch(onError);
-  }, [nav, api, activeUser?.id, refreshSignal]);
+      .then((r) => { if (valid && generation === viewGeneration.current) setFavorites(r.items); })
+      .catch((e) => { if (valid) scopedError(e); });
+    return () => { valid = false; };
+  }, [nav, api, activeUser?.id, refreshSignal, generation]);
   useEffect(() => {
     if (!ready || !activeUser) return;
-    const id = new URLSearchParams(location.hash.slice(1)).get("session");
-    if (id)
-      void api
+    const id = initialSession.current;
+    if (!id) return;
+    const ticket = selectionGeneration.current;
+    let valid = true;
+    void api
         .get<Session>("/sessions/" + encodeURIComponent(id))
-        .then(setSelected)
-        .catch(onError);
-  }, [ready, activeUser?.id]);
+        .then((s) => {
+          if (valid && generation === viewGeneration.current && ticket === selectionGeneration.current) {
+            initialSession.current = null;
+            setSelected(s);
+            historyReplace(s.id);
+          }
+        })
+        .catch((e) => {
+          if (valid && generation === viewGeneration.current && ticket === selectionGeneration.current) {
+            initialSession.current = null;
+            historyReplace();
+            if (e instanceof ApiError && e.status === 404)
+              notify("链接中的会话已不可用，请从当前列表重新选择。", true);
+            else onError(e);
+          }
+        });
+    return () => { valid = false; };
+  }, [ready, activeUser?.id, api]);
   function navigate(nextNav: Nav) {
+    viewGeneration.current++;
+    selectionGeneration.current++;
+    initialSession.current = null;
+    selectedRef.current = null;
+    historyReplace();
+    setNotice(null);
+    setSessions([]);
+    setNext(null);
+    setFavorites([]);
+    setMembers([]);
+    setListError("");
+    setBusy(true);
+    setLive(false);
+    setRevoke(null);
+    setSourceOpen(false);
+    setSyncSessions(null);
     if (nextNav === "local" || nextNav === "team") setScope(nextNav);
     setNav(nextNav);
     setSelected(null);
@@ -282,14 +335,20 @@ export default function App() {
     setOwner("");
     setProject("");
     setSearch("");
+    setSearchQuery("");
+    setDateFrom("");
+    setDateTo("");
     setMobileNav(false);
     setHasUpdates(false);
   }
   function openSession(s: Session) {
+    initialSession.current = null;
+    const ticket = ++selectionGeneration.current;
     if (nav === "favorites") {
       void api
         .get<Page<Favorite>>("/favorites" + query({ session_id: s.id }))
         .then((p) => {
+          if (ticket !== selectionGeneration.current || generation !== viewGeneration.current) return;
           const f = p.items[0];
           setSelected({
             ...s,
@@ -299,7 +358,7 @@ export default function App() {
             favorite_seq: f?.event_seq,
           });
         })
-        .catch(onError);
+        .catch((e) => { if (ticket === selectionGeneration.current) scopedError(e); });
     } else setSelected(s);
     setVersionSignal(0);
     historyReplace(s.id);
@@ -310,7 +369,7 @@ export default function App() {
   }
   function historyReplace(id?: string) {
     const nextUrl = new URL(location.href);
-    nextUrl.hash = id ? "session=" + id : "";
+    nextUrl.hash = id ? new URLSearchParams({ scope: team ? "team" : "local", session: id }).toString() : "";
     window.history.replaceState(null, "", nextUrl);
   }
   async function importFiles(files: FileList | File[]) {
@@ -518,7 +577,7 @@ export default function App() {
               <LogOut size={17} />
             </button>
           )}
-          <span>内测版 0.1</span>
+          <Updates local={!!local} />
         </div>
       </aside>
       <main className="workspace">
@@ -737,7 +796,7 @@ export default function App() {
               )}
               <div className="list-caption">
                 <span>
-                  {selection.size
+                  {busy ? "加载中…" : selection.size
                     ? `已选择 ${selection.size} 条`
                     : `${sessions.length} 条记录${next ? " · 本页" : ""}`}
                 </span>
@@ -770,11 +829,16 @@ export default function App() {
                   <span>{selection.size > 10 ? "单次最多 10 条" : ""}</span>
                 </div>
               )}
-              <div className="session-list">
-                {busy && !sessions.length ? (
-                  <div className="loading-line">
+              <div className="session-list" aria-busy={busy}>
+                {busy ? (
+                  <div className="loading-line" role="status">
                     <Loader2 size={17} className="spin" />
-                    读取会话索引
+                    {team ? "正在加载云端记录…" : "正在加载本地记录…"}
+                  </div>
+                ) : listError ? (
+                  <div className="empty-list" role="alert">
+                    <h3>记录加载失败</h3><p>{listError}</p>
+                    <button className="button" onClick={refresh}>重新加载</button>
                   </div>
                 ) : !sessions.length ? (
                   <div className="empty-list">
@@ -941,10 +1005,12 @@ export default function App() {
                 api={api}
                 user={activeUser}
                 onClose={() => {
+                  selectionGeneration.current++;
+                  initialSession.current = null;
                   setSelected(null);
                   historyReplace();
                 }}
-                onError={onError}
+                onError={scopedError}
                 onNotice={notify}
                 onChange={refresh}
                 versionSignal={versionSignal}

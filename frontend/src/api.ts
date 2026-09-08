@@ -44,6 +44,12 @@ export async function request<T>(
       method,
       path: "/api/v1" + path,
       body: options.body ? JSON.parse(String(options.body)) : null,
+    }).catch((error: unknown) => {
+      let parsed: {status?: number; message?: string} = {};
+      try { parsed = JSON.parse(String(error)); } catch {}
+      if (typeof parsed?.status === "number" && typeof parsed.message === "string")
+        throw new ApiError(parsed.status, parsed.message);
+      throw error instanceof Error ? error : new Error(String(error));
     });
   }
   const headers = new Headers(options.headers);
@@ -83,6 +89,14 @@ export function query(
 }
 export async function chooseFiles(): Promise<string[]> {
   return invoke<string[]>("choose_files");
+}
+export async function sessionLink(api: Client, id: string, local: boolean) {
+  let base = location.origin + location.pathname;
+  if (api.path("/sessions").startsWith("/remote/api/")) {
+    const config = await request<{url: string}>("/remote/config");
+    base = config.url.replace(/\/$/, "") + "/";
+  }
+  return base + "#" + new URLSearchParams({ scope: local ? "local" : "team", session: id });
 }
 export async function download(path: string, filename: string) {
   if (isDesktop()) {

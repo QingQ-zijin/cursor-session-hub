@@ -2543,3 +2543,7 @@ small {
   border-top: 1px solid var(--line);
   margin-bottom: 12px;
 }
+.sidebar-footer .version-button { margin-left: auto; font-size: 11px; width: auto; gap: 5px; }
+.sidebar-footer .update-available { color: var(--accent); }
+.release-notes { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 280px; overflow: auto; }
+.update-content p[role="status"] { display: flex; align-items: center; gap: 8px; }

@@ -55,9 +55,22 @@ async fn native_bridge(state: State<'_, CoreState>, method: String, path: String
     if bytes.is_empty() && status.is_success() { return Ok(json!({"ok":true})); }
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| "服务器响应格式异常".to_string())?;
     if !status.is_success() {
-        return Err(value.get("detail").and_then(Value::as_str).unwrap_or("请求失败").to_owned());
+        return Err(json!({"status":status.as_u16(),"message":value.get("detail").and_then(Value::as_str).unwrap_or("请求失败")}).to_string());
     }
     Ok(value)
+}
+
+#[tauri::command]
+async fn open_release(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let parsed = reqwest::Url::parse(&url).map_err(|_| "无效更新地址".to_string())?;
+    if parsed.scheme() != "https" || parsed.host_str() != Some("github.com")
+        || !parsed.username().is_empty() || parsed.password().is_some() || parsed.port().is_some()
+        || !(parsed.path() == "/QingQ-zijin/cursor-session-hub/releases"
+             || parsed.path().starts_with("/QingQ-zijin/cursor-session-hub/releases/")) {
+        return Err("仅允许打开本产品的 GitHub 发布地址".into());
+    }
+    #[allow(deprecated)]
+    app.shell().open(parsed.as_str(), None).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -174,7 +187,7 @@ fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![native_bridge, choose_files, native_asset, save_download, subscribe_activity, unsubscribe_activity])
+        .invoke_handler(tauri::generate_handler![native_bridge, open_release, choose_files, native_asset, save_download, subscribe_activity, unsubscribe_activity])
         .setup(|app| {
             let token = uuid::Uuid::new_v4().to_string() + &uuid::Uuid::new_v4().to_string();
             let (mut events, child) = app.shell().sidecar("hub-core")?

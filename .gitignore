@@ -36,3 +36,8 @@ desktop/gen/
 # Upstream illustration is retained locally, excluded from future source packages.
 /screenshot.png
 
+
+/release-assets/
+/release-input/
+/frontend/test-results/
+/frontend/playwright-report/

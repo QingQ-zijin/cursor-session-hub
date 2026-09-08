@@ -1,5 +1,7 @@
 name: Build desktop installers
 on:
+  push:
+    tags: ['v[0-9]*.[0-9]*.[0-9]*']
   workflow_dispatch:
     inputs:
       platform:
@@ -17,10 +19,12 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - run: pip install -r requirements.txt
-      - run: python -m pytest tests/test_hub_api.py tests/test_hub_remote.py tests/test_hub_ingest.py tests/test_hub_migration.py tests/test_hub_sources.py tests/test_body_limits.py -q
+      - run: python -m pytest tests/test_hub_api.py tests/test_hub_remote.py tests/test_hub_ingest.py tests/test_hub_migration.py tests/test_hub_sources.py tests/test_body_limits.py tests/test_hub_updates.py -q
       - uses: actions/setup-node@v4
         with: {node-version: '22', cache: npm, cache-dependency-path: frontend/package-lock.json}
       - run: npm ci && npm test && npm run build
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium && npm run test:e2e
         working-directory: frontend
   package:
     needs: test
@@ -43,20 +47,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key
       - uses: actions/setup-python@v5
-        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key
         with: {python-version: '3.12'}
       - uses: actions/setup-node@v4
-        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key
         with: {node-version: '22', cache: npm, cache-dependency-path: frontend/package-lock.json}
       - name: Rust toolchain
-        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key
         shell: bash
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: actions/cache/restore@v4
         id: cargo-cache
-        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key
         with:
           path: |
             ~/.cargo/registry
@@ -65,7 +69,7 @@ jobs:
           key: rust-${{ matrix.target }}-${{ hashFiles('desktop/Cargo.lock') }}
           restore-keys: rust-${{ matrix.target }}-
       - name: Dependencies and web assets
-        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key
         shell: bash
         run: |
           pip install -r requirements-build.txt
@@ -73,13 +77,13 @@ jobs:
           npm --prefix frontend ci
           npm --prefix frontend run build
       - name: Freeze target-native Python core
-        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key
         run: python scripts/build_sidecar.py --target ${{ matrix.target }}
       - name: Smoke test frozen parser
-        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key
         run: python scripts/smoke_sidecar.py --target ${{ matrix.target }}
       - name: Build installer
-        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key
         working-directory: desktop
         shell: bash
         env:
@@ -88,10 +92,10 @@ jobs:
           python ../scripts/prepare_installer_output.py --target ${{ matrix.target }}
           ../node_modules/.bin/tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
       - name: Smoke test packaged desktop
-        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        if: github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key
         run: python scripts/smoke_desktop.py --target ${{ matrix.target }}
       - uses: actions/cache/save@v4
-        if: always() && (inputs.platform == 'all' || inputs.platform == matrix.key) && steps.cargo-cache.outputs.cache-hit != 'true'
+        if: always() && (github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key) && steps.cargo-cache.outputs.cache-hit != 'true'
         with:
           path: |
             ~/.cargo/registry
@@ -99,7 +103,7 @@ jobs:
             desktop/target
           key: rust-${{ matrix.target }}-${{ hashFiles('desktop/Cargo.lock') }}
       - uses: actions/upload-artifact@v4
-        if: failure() && (inputs.platform == 'all' || inputs.platform == matrix.key)
+        if: failure() && (github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key)
         with:
           name: smoke-debug-${{ matrix.key }}
           path: .runtime/smoke-*.json
@@ -107,7 +111,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
       - uses: actions/upload-artifact@v4
-        if: (inputs.platform == 'all' || inputs.platform == matrix.key) && success()
+        if: (github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == matrix.key) && success()
         with:
           name: cursor-session-hub-${{ matrix.key }}
           path: |
@@ -119,3 +123,30 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 14
+
+  release:
+    if: github.event_name == 'push'
+    needs: [test, package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches application version
+        run: |
+          test "$GITHUB_REF_NAME" = "v$(python -c 'import json; print(json.load(open("desktop/tauri.conf.json"))["version"])')"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cursor-session-hub-*
+          path: release-input
+      - run: python scripts/prepare_release.py release-input
+      - name: Create release draft with tested installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="docs/releases/$GITHUB_REF_NAME.md"
+          if [ ! -f "$NOTES" ]; then
+            NOTES="$RUNNER_TEMP/release-notes.md"
+            printf 'Cursor Session Hub %s — Windows x64, Mac Apple Silicon, Mac Intel.\n' "$GITHUB_REF_NAME" > "$NOTES"
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft --title "Cursor Session Hub $GITHUB_REF_NAME" --notes-file "$NOTES" release-assets/*

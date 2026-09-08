@@ -131,7 +131,7 @@ def create_app(config: Config | None = None):
                 await asyncio.to_thread(worker.join,10)
         engine.dispose()
 
-    app = FastAPI(title='Cursor Session Hub', version='0.1.2', lifespan=lifespan)
+    app = FastAPI(title='Cursor Session Hub', version='0.1.3', lifespan=lifespan)
     # Register before the HTTP decorator below so this sits directly around
     # routing. Receive-limit exceptions then reach FastAPI without being
     # wrapped in BaseHTTPMiddleware's request-relay task groups.
@@ -233,6 +233,14 @@ def create_app(config: Config | None = None):
         item['comment_count'] = conn.execute(select(func.count()).select_from(db.comments).where(db.comments.c.session_id == row['id'])).scalar_one()
         item['favorite'] = bool(conn.execute(select(db.favorites.c.id).where(db.favorites.c.owner_id == user['id'], db.favorites.c.session_id == row['id'])).first())
         return item
+
+    from hub.updates import ReleaseChecker
+    release_checker = ReleaseChecker()
+
+    @router.get('/updates')
+    def check_updates(user=Depends(require_user)):
+        local_only()
+        return release_checker.check()
 
     @router.get('/capabilities')
     def capabilities(request: Request):
