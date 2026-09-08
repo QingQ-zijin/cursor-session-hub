@@ -43,6 +43,12 @@ docker compose up -d --build --wait
 
 IP 证书有效期为 **160 小时（约 6 天）**，由持续运行的 Caddy 自动续期。保留 **`caddy-data` 数据卷**中的证书和 ACME 账号状态，容器重建时不要清除该卷。这里使用浏览器信任的公共证书，无需安装自签名根证书或关闭证书验证。后续备份、恢复和升级也应保留上面的三文件 `COMPOSE_FILE` 设置。[Let's Encrypt IP 证书公告](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability.html)、[Caddy 自动 HTTPS 与存储](https://caddyserver.com/docs/automatic-https)
 
+## 明确选择 HTTP 的内测部署
+
+只有管理员明确接受明文传输登录凭证与会话内容时，才使用此覆盖配置。在 `.env` 中设置 `CSH_HTTP_HOST` 为实际主机名或IP、`CSH_HTTP_PORT=8000`，然后使用 `COMPOSE_FILE=compose.yml:compose.http-preview.yml` 启动。不要同时启用HTTPS覆盖文件。数据库仍不发布公网端口，API仍仅绑定回环；HTTP代理发布所选端口。
+
+客户端需要0.1.1或更新版本，填写完整的 `http://主机:端口` 并勾选“允许 HTTP 内测连接”。该选择只对当前地址生效，密码与同步凭证仍保存到系统凭据存储。此配置不代表流量已经加密。
+
 ## 备份和恢复
 原始内容/图片在 hub-data 卷，账号/索引/评论在 hub-db 卷。二者必须一并备份。执行 `python3 scripts/backup.py --output /backup/某日期`，它停止 API 及 worker 写入后备份，再恢复服务；输出目录必须为空。备份目录应位于另一块磁盘或复制到异地，定期保留至少 7 份。
 

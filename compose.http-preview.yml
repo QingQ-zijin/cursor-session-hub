@@ -1,0 +1,21 @@
+# Explicit HTTP beta only. Combine with compose.yml, not the HTTPS overlays.
+services:
+  api:
+    environment:
+      CSH_PUBLIC_URL: http://${CSH_HTTP_HOST:?Set CSH_HTTP_HOST}:${CSH_HTTP_PORT:-8000}
+      CSH_COOKIE_SECURE: "0"
+  worker:
+    environment:
+      CSH_PUBLIC_URL: http://${CSH_HTTP_HOST:?Set CSH_HTTP_HOST}:${CSH_HTTP_PORT:-8000}
+      CSH_COOKIE_SECURE: "0"
+  http-preview:
+    image: caddy:2.11.4-alpine
+    environment:
+      CSH_HTTP_HOST: ${CSH_HTTP_HOST:?Set CSH_HTTP_HOST}
+    ports: ["${CSH_HTTP_PORT:-8000}:8000"]
+    volumes:
+      - ./deploy/Caddyfile.http-preview:/etc/caddy/Caddyfile:ro
+    depends_on: [api]
+    mem_limit: 128m
+    cpus: 0.25
+    restart: unless-stopped

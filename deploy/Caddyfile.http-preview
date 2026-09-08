@@ -1,0 +1,12 @@
+http://{$CSH_HTTP_HOST}:8000 {
+    encode zstd gzip
+    request_body {
+        max_size 513MB
+    }
+    reverse_proxy api:8000
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        X-Frame-Options DENY
+    }
+}

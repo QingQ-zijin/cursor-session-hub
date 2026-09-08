@@ -25,6 +25,8 @@ desktop/runtime/
 .runtime/
 artifacts/
 .env
+.env.*
+!.env.example
 frontend/output/
 frontend/.playwright-cli/
 frontend/.runtime/
