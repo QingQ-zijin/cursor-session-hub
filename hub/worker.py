@@ -22,9 +22,35 @@ def _execute(config, job_id):
     except (AttributeError, OSError, psutil.Error):
         pass
     engine = db.get_engine(config)
+    heartbeat_stop = threading.Event()
+    heartbeat = None
     try:
         with engine.connect() as conn:
             job = conn.execute(select(db.jobs).where(db.jobs.c.id == job_id)).mappings().one()
+        def keep_lease():
+            next_renew = 0
+            while not heartbeat_stop.wait(.25):
+                try:
+                    if psutil.Process().memory_info().rss >= int(config.worker_memory_bytes * .90):
+                        with engine.begin() as conn:
+                            conn.execute(db.jobs.update().where(db.jobs.c.id == job_id).values(state='failed', error='Parser memory limit reached; committed checkpoint retained', updated_at=db.now()))
+                        os._exit(71)
+                    if job['lease_owner'] and time.monotonic() >= next_renew:
+                        with engine.begin() as conn:
+                            held = conn.execute(db.leases.update().where(db.leases.c.name == 'parser', db.leases.c.owner == job['lease_owner']).values(expires_at=db.now() + 30))
+                            if held.rowcount != 1:
+                                # Lease takeover must never leave two writers
+                                # continuing the same revision concurrently.
+                                os._exit(72)
+                            conn.execute(db.jobs.update().where(db.jobs.c.id == job_id, db.jobs.c.state == 'running').values(lease_until=db.now() + 60))
+                        next_renew = time.monotonic() + 5
+                except psutil.NoSuchProcess:
+                    return
+                except Exception:
+                    # A transient database reconnect cannot spin this loop.
+                    heartbeat_stop.wait(1)
+        heartbeat = threading.Thread(target=keep_lease, daemon=True, name='csh-child-lease')
+        heartbeat.start()
         kind = job['kind']
         if kind == 'ingest':
             from .ingest import ingest_path
@@ -63,6 +89,9 @@ def _execute(config, job_id):
             conn.execute(db.syncs.update().where(db.syncs.c.job_id == job_id).values(state=state, error=str(exc)[:2000], updated_at=db.now()))
             db.emit(conn, 'job', owner_id=current['owner_id'], session_id=current['session_id'], job_id=job_id, state=state)
     finally:
+        heartbeat_stop.set()
+        if heartbeat:
+            heartbeat.join(timeout=2)
         engine.dispose()
 
 
@@ -130,7 +159,7 @@ def run_forever(config, stop_event=None):
                 # Recover only expired jobs: two supervisors cannot both claim
                 # an in-flight import after an app restart.
                 conn.execute(db.jobs.update().where(db.jobs.c.state == 'running', or_(db.jobs.c.lease_until < db.now(), db.jobs.c.lease_until == None)).values(state='queued', lease_owner=None, updated_at=db.now()))
-                row = conn.execute(select(db.jobs).where(db.jobs.c.state == 'queued', db.jobs.c.cancel_requested == False).order_by(db.jobs.c.created_at).limit(1)).mappings().first()
+                row = conn.execute(select(db.jobs).where(db.jobs.c.state == 'queued', db.jobs.c.cancel_requested == False, or_(db.jobs.c.lease_until == None, db.jobs.c.lease_until <= db.now())).order_by(db.jobs.c.created_at).limit(1)).mappings().first()
                 if row:
                     changed = conn.execute(db.jobs.update().where(db.jobs.c.id == row['id'], db.jobs.c.state == 'queued').values(state='running', lease_owner=owner, lease_until=db.now() + 60, error=None, updated_at=db.now()))
                     if changed.rowcount != 1:
@@ -167,7 +196,13 @@ def run_forever(config, stop_event=None):
                 current = conn.execute(select(db.jobs).where(db.jobs.c.id == row['id'])).mappings().one()
                 if current['state'] == 'running':
                     state = 'queued' if stop_event.is_set() else ('paused' if failure == 'paused' else 'cancelled' if failure == 'cancelled' else 'failed')
-                    conn.execute(db.jobs.update().where(db.jobs.c.id == row['id']).values(state=state, error=failure or f'Worker exited before publication (exit {child.returncode})', lease_owner=None, lease_until=None, updated_at=db.now()))
+                    result = dict(current['result_json'] or {})
+                    retry_after = None
+                    if not stop_event.is_set() and failure is None and result.get('_crash_retries', 0) < 2:
+                        result['_crash_retries'] = result.get('_crash_retries', 0) + 1
+                        state = 'queued'
+                        retry_after = db.now() + result['_crash_retries']
+                    conn.execute(db.jobs.update().where(db.jobs.c.id == row['id']).values(state=state, error=failure or f'Worker exited before publication (exit {child.returncode})', lease_owner=None, lease_until=retry_after, result_json=result, updated_at=db.now()))
                     conn.execute(db.syncs.update().where(db.syncs.c.job_id == row['id']).values(state=state, error=failure, updated_at=db.now()))
             child = None
     finally:

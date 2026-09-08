@@ -26,10 +26,16 @@ def iter_sources(paths=None):
         conn = common.connect_ro(ide)
         try:
             # Read one composer metadata row, never bubble payloads or tool outputs.
-            for key, raw in conn.execute("SELECT key,value FROM cursorDiskKV WHERE key LIKE 'composerData:%' AND length(value)<=8388608"):
-                data = common.loads_or_none(raw) or {}
-                import cursor_parser
+            for key, size in conn.execute("SELECT key,length(value) FROM cursorDiskKV WHERE key LIKE 'composerData:%'"):
                 native = key.split(':', 1)[1]
+                if size > 8388608:
+                    yield {'path': str(ide), 'native_id': native, 'title': native, 'source_kind': 'cursor_ide', 'project': '', 'status': 'oversized_metadata'}
+                    continue
+                raw = conn.execute('SELECT value FROM cursorDiskKV WHERE key=?', (key,)).fetchone()[0]
+                data = common.loads_or_none(raw) or {}
+                if not isinstance(data, dict):
+                    data = {}
+                import cursor_parser
                 yield {'path': str(ide), 'native_id': native, 'title': data.get('name') or native,
                        'source_kind': 'cursor_ide', 'project': cursor_parser._composer_cwd(data)}
         finally:

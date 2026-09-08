@@ -117,7 +117,15 @@ def iter_jsonl_records(path, raw_dir=None, start_offset=0):
 
 def normalize_jsonl(rec):
     if rec.get('kind'):
-        return rec
+        if isinstance(rec, ParseDiagnostic):
+            return rec
+        def strip_internal(value):
+            if isinstance(value, dict):
+                return {key: strip_internal(child) for key, child in value.items() if key not in ('_raw_path', '_full_content_id', 'raw_content_id', 'asset_id', 'content_id')}
+            if isinstance(value, list):
+                return [strip_internal(child) for child in value]
+            return value
+        return strip_internal(rec)
     role = rec.get('role')
     if role not in ('user', 'assistant', 'tool'):
         return {'kind': 'raw', 'record_type': str(rec.get('type', role or 'unknown')), 'payload': rec, '_diagnostic': True}
@@ -541,7 +549,17 @@ class IndexWriter:
                 path = self.source_base / path
             filename = path.name
             mime = mimetypes.guess_type(filename)[0] or ''
-            if path.is_file() and mime.startswith('image/') and path.stat().st_size <= self.config.max_package_bytes:
+            image_valid = False
+            if path.is_file() and mime.startswith('image/') and mime != 'image/svg+xml' and path.stat().st_size <= self.config.max_package_bytes:
+                try:
+                    from PIL import Image
+                    with Image.open(path) as probe:
+                        mime = Image.MIME.get(probe.format, mime)
+                        probe.verify()
+                    image_valid = True
+                except Exception:
+                    reason = 'Referenced image has invalid or unsupported image data'
+            if image_valid:
                 digest = file_hash(path)
                 target = self.config.home / 'assets' / digest
                 if not target.exists():
@@ -556,6 +574,16 @@ class IndexWriter:
         else:
             reason = 'No readable image source was recorded'
         aid = db.new_id()
+        if raw is not None and mime.startswith('image/'):
+            try:
+                from PIL import Image
+                import io
+                with Image.open(io.BytesIO(raw)) as probe:
+                    mime = Image.MIME.get(probe.format, 'image/png')
+                    probe.verify()
+            except Exception:
+                raw = None
+                reason = 'Invalid inline image data'
         if raw is not None and mime.startswith('image/'):
             digest = hashlib.sha256(raw).hexdigest()
             target = self.config.home / 'assets' / digest

@@ -205,22 +205,34 @@ def import_bundle(config, job_id):
                         if info.file_size != expected_bytes or expected_bytes > config.max_package_bytes:
                             raise ValueError('Attachment size does not match manifest')
                         target = config.home / group / (entry['sha256'] if group == 'assets' else new_id)
+                        temporary_asset = target.with_name(target.name + '.' + new_id + '.partial')
                         digest = hashlib.sha256()
-                        with archive.open(entry['path']) as src, target.open('wb') as out:
+                        with archive.open(entry['path']) as src, temporary_asset.open('wb') as out:
                             while block := src.read(256 * 1024):
                                 digest.update(block)
                                 out.write(block)
                         if digest.hexdigest() != entry['sha256']:
-                            target.unlink(missing_ok=True)
+                            temporary_asset.unlink(missing_ok=True)
                             raise ValueError('Attachment checksum mismatch')
                         values = {'id': new_id, 'revision_id': revision_id, 'path': str(target), 'bytes': expected_bytes, 'sha256': entry['sha256']}
                         if group == 'assets':
                             mime = str(entry.get('mime', ''))
                             if not mime.startswith('image/') or mime == 'image/svg+xml':
                                 raise ValueError('Unsupported image MIME type')
+                            from PIL import Image
+                            try:
+                                with Image.open(temporary_asset) as probe:
+                                    mime = Image.MIME.get(probe.format, mime)
+                                    probe.verify()
+                            except Exception as exc:
+                                temporary_asset.unlink(missing_ok=True)
+                                raise ValueError('Invalid image data in sync package') from exc
                             values.update(mime=mime, name=str(entry.get('name', 'image'))[:200])
                         else:
                             values['kind'] = 'raw'
+                        # Validate before replacing any content-addressed file:
+                        # a bad new upload cannot damage an older readable image.
+                        os.replace(temporary_asset, target)
                         conn.execute(table.insert().values(**values))
                 publish_metadata = {'title': str(manifest.get('title', '未命名会话'))[:2000], 'original_title': str(manifest.get('title', ''))[:2000], 'project': str(manifest.get('project', ''))[:2000], 'native_id': str(manifest.get('native_id', ''))[:300], 'source_kind': str(manifest.get('source_kind', 'cursor_jsonl'))[:40]}
                 conn.execute(db.revisions.update().where(db.revisions.c.id == revision_id).values(metadata_json={'asset_map': asset_map, 'content_map': content_map, 'format': manifest['format'], 'publish_metadata': publish_metadata}))

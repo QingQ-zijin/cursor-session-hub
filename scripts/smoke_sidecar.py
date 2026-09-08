@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import psutil
 
 ROOT=Path(__file__).resolve().parents[1]
 def main():
@@ -16,7 +17,7 @@ def main():
  ext='.exe' if sys.platform=='win32' else ''
  binary=ROOT/'desktop/binaries'/f'hub-core-{a.target}{ext}'
  out=ROOT/'.runtime';out.mkdir(exist_ok=True)
- with tempfile.TemporaryDirectory() as td:
+ with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
   home=Path(td);token=secrets.token_urlsafe(32)
   sample=home/'示例.jsonl';sample.write_text(json.dumps({'role':'user','message':{'content':[{'type':'text','text':'你好，请检查这个记录。'}]}},ensure_ascii=False)+'\n'+json.dumps({'role':'assistant','message':{'content':[{'type':'text','text':'已完成。\n\n```python\nprint(1)\n```'}]}},ensure_ascii=False)+'\n',encoding='utf-8')
   env=dict(os.environ,CSH_HOME=str(home),CSH_LOCAL_TOKEN=token,CSH_MIN_FREE_BYTES='1048576',CSH_MIN_FREE_RATIO='0',CSH_MIGRATE_LEGACY='0')
@@ -48,9 +49,16 @@ def main():
    (out/f'smoke-core-{a.target}.json').write_text(json.dumps({'ok':True,'events':2,'target':a.target}),encoding='utf-8')
    print('Frozen core smoke PASS:',a.target)
   finally:
+   try: owned = psutil.Process(process.pid).children(recursive=True) + [psutil.Process(process.pid)]
+   except psutil.Error: owned = []
    if sys.platform=='win32':subprocess.run(['taskkill','/PID',str(process.pid),'/T','/F'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
    else:process.terminate()
    try:process.wait(timeout=15)
    except subprocess.TimeoutExpired:process.kill();process.wait()
+   _, remaining = psutil.wait_procs(owned, timeout=10)
+   for child in remaining:
+    try: child.kill()
+    except psutil.Error: pass
+   psutil.wait_procs(remaining,timeout=5)
    log.close()
 if __name__=='__main__':main()

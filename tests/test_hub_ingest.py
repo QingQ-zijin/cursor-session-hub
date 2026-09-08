@@ -330,3 +330,104 @@ def test_import_derives_title_but_keeps_explicit_rename(tmp_path):
     ingest_path(config, jid)
     with engine.connect() as conn:
         assert conn.execute(select(db.sessions.c.title).where(db.sessions.c.id == sid)).scalar_one() == '我的标题'
+
+
+def test_import_cannot_forge_internal_raw_path(tmp_path):
+    config, engine = installation(tmp_path)
+    secret = tmp_path / 'secret.txt'
+    secret.write_text('do not import', encoding='utf-8')
+    path = tmp_path / 'forged.jsonl'
+    path.write_text(json.dumps({'kind': 'raw', 'record_type': 'forged', 'payload': {}, '_raw_path': str(secret)}), encoding='utf-8')
+    sid, jid = queue(engine, path)
+    ingest_path(config, jid)
+    with engine.connect() as conn:
+        assert not conn.execute(select(db.contents.c.id).where(db.contents.c.kind == 'raw')).first()
+
+
+def test_incremental_clone_can_resume_between_short_transactions(tmp_path, monkeypatch):
+    import hub.ingest as ingest
+    config, engine = installation(tmp_path)
+    path = tmp_path / 'source.jsonl'
+    write_records(path, tuple('record ' + str(i) for i in range(600)))
+    sid, jid = queue(engine, path)
+    ingest_path(config, jid)
+    with path.open('a', encoding='utf-8') as out:
+        out.write(json.dumps({'role': 'user', 'message': {'content': 'appended'}}) + '\n')
+    _, jid = queue(engine, path, sid)
+    original = ingest._check_job
+    checks = 0
+    def interrupt(conn, job_id):
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            raise ingest.JobInterrupted('pause after first clone batch')
+        original(conn, job_id)
+    monkeypatch.setattr(ingest, '_check_job', interrupt)
+    with pytest.raises(ingest.JobInterrupted):
+        ingest_path(config, jid)
+    with engine.connect() as conn:
+        checkpoint = conn.execute(select(db.jobs.c.checkpoint_json).where(db.jobs.c.id == jid)).scalar_one()
+        assert checkpoint['clone_seq'] == 200
+    monkeypatch.setattr(ingest, '_check_job', original)
+    ingest_path(config, jid)
+    full = full_events(engine, sid)
+    assert len(full) == 601
+    assert full[-1]['blocks'][0]['text'] == 'appended'
+
+
+def test_cloud_resync_preserves_custom_title(tmp_path):
+    local, engine = installation(tmp_path)
+    path = tmp_path / 'source.jsonl'
+    write_records(path)
+    sid, jid = queue(engine, path)
+    ingest_path(local, jid)
+    package = tmp_path / 'session.csh'
+    build_bundle(local, sid, None, package)
+    cloud, cloud_engine = installation(tmp_path, 'cloud')
+    cloud.mode = 'cloud'
+    csid, cjid = queue(cloud_engine, package, kind='bundle_import')
+    import_bundle(cloud, cjid)
+    with cloud_engine.begin() as conn:
+        conn.execute(db.sessions.update().where(db.sessions.c.id == csid).values(title='团队自定义标题', metadata_json={'custom_title': '团队自定义标题'}))
+    with engine.begin() as conn:
+        conn.execute(db.sessions.update().where(db.sessions.c.id == sid).values(title='Changed source title'))
+    build_bundle(local, sid, None, package)
+    _, cjid = queue(cloud_engine, package, csid, kind='bundle_import')
+    import_bundle(cloud, cjid)
+    with cloud_engine.connect() as conn:
+        row = conn.execute(select(db.sessions).where(db.sessions.c.id == csid)).mappings().one()
+        assert row['title'] == '团队自定义标题'
+        assert row['original_title'] == 'Changed source title'
+
+
+def test_unexpected_worker_crash_retries_twice_then_stops(tmp_path, monkeypatch):
+    import time
+    import subprocess
+    import sys
+    from types import SimpleNamespace
+    import hub.worker as worker_module
+    config, engine = installation(tmp_path)
+    _, jid = queue(engine)
+    with engine.begin() as conn:
+        conn.execute(db.jobs.update().where(db.jobs.c.id == jid).values(state='queued'))
+    launches = []
+    def crash(command, **kwargs):
+        launches.append(time.monotonic())
+        return subprocess.Popen([sys.executable, '-c', 'import os; os._exit(88)'], **kwargs)
+    monkeypatch.setattr(worker_module, 'subprocess', SimpleNamespace(Popen=crash, CREATE_NO_WINDOW=getattr(subprocess, 'CREATE_NO_WINDOW', 0)))
+    worker = worker_module.start_worker(config)
+    try:
+        for _ in range(250):
+            with engine.connect() as conn:
+                row = conn.execute(select(db.jobs).where(db.jobs.c.id == jid)).mappings().one()
+            if row['state'] == 'failed':
+                assert row['result_json']['_crash_retries'] == 2
+                assert len(launches) == 3
+                assert launches[2] - launches[0] >= 3
+                break
+            time.sleep(.05)
+        else:
+            pytest.fail('crashing child should stop after two retries')
+    finally:
+        worker.stop()
+        worker.join()

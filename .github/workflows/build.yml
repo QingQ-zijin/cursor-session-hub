@@ -54,6 +54,14 @@ jobs:
         if: inputs.platform == 'all' || inputs.platform == matrix.key
         shell: bash
         run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: actions/cache@v4
+        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/target
+          key: rust-${{ matrix.target }}-${{ hashFiles('desktop/Cargo.lock') }}
       - name: Dependencies and web assets
         if: inputs.platform == 'all' || inputs.platform == matrix.key
         shell: bash
