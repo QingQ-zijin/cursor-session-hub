@@ -380,7 +380,7 @@ export default function App() {
         await post("/auth/logout");
         setMe(null);
       }
-      setSelected(null);
+      navigate('team');
       notify("已退出团队账号");
     } catch (e) {
       onError(e);
@@ -551,7 +551,7 @@ export default function App() {
             onError={onError}
             onNotice={notify}
           />
-        ) : nav === "admin" && activeUser ? (
+        ) : nav === "admin" && activeUser?.role === 'admin' ? (
           <AdminPanel
             api={api}
             user={activeUser}

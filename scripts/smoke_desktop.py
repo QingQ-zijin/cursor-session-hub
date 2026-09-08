@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import plistlib
 
 ROOT=Path(__file__).resolve().parents[1]
 def main():
@@ -13,7 +14,7 @@ def main():
  release=ROOT/'desktop/target'/args.target/'release'
  output=ROOT/'.runtime'/f'smoke-desktop-{args.target}.json';output.parent.mkdir(exist_ok=True)
  with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temporary:
-  root=Path(temporary);home=root/'data';home.mkdir()
+  root=Path(temporary).resolve();home=root/'data';home.mkdir()
   env=dict(os.environ,CSH_HOME=str(home),CSH_SMOKE_OUTPUT=str(output),CSH_MIN_FREE_RATIO='0',CSH_MIN_FREE_BYTES='1048576')
   mounted=False;installed=None
   try:
@@ -29,7 +30,9 @@ def main():
     subprocess.run(['hdiutil','attach',str(image),'-mountpoint',str(mount),'-nobrowse','-readonly'],timeout=60,check=True,stdout=subprocess.DEVNULL)
     mounted=True
     app=next(mount.glob('*.app'))
-    binary=app/'Contents/MacOS/cursor-session-hub'
+    with (app/'Contents/Info.plist').open('rb') as source: executable=plistlib.load(source)['CFBundleExecutable']
+    binary=app/'Contents/MacOS'/executable
+   binary=binary.resolve(strict=True)
    subprocess.run([str(binary),'--smoke-test'],env=env,timeout=120,check=True)
    assert output.is_file() and json.loads(output.read_text())['ok'],'Desktop smoke output missing'
   finally:

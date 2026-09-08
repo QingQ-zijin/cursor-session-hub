@@ -811,7 +811,7 @@ export function Reader({
     [busy, setBusy] = useState(false),
     [revisions, setRevisions] = useState<Revision[]>([]),
     [newVersion, setNewVersion] = useState(false),
-    [saved, setSaved] = useState(false),
+    [saved, setSaved] = useState(!!session.favorite),
     [rename, setRename] = useState(false),
     [title, setTitle] = useState(session.title),
     [copy, setCopy] = useState(false);
