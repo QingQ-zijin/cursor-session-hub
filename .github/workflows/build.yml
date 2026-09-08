@@ -100,6 +100,7 @@ jobs:
         with:
           name: smoke-debug-${{ matrix.key }}
           path: .runtime/smoke-*.json
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 3
       - uses: actions/upload-artifact@v4
@@ -110,5 +111,8 @@ jobs:
             desktop/target/${{ matrix.target }}/release/bundle/nsis/*.exe
             desktop/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
             .runtime/smoke-*.json
+            LICENSE
+            NOTICE.md
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14

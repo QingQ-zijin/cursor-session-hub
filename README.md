@@ -17,6 +17,8 @@
 
 ## 安装包
 
+0.1.0 的 Windows x64、Mac Apple Silicon 和 Mac Intel 安装包均已实际构建，并通过安装或挂载后的启动检查。见[安装与首次使用](docs/QUICKSTART.zh-CN.md)和[验收记录](docs/VERIFICATION.md)。
+
 在本仓库Actions中手动运行 Build desktop installers，产物为Windows x64安装程序及Mac Apple Silicon/Intel各自的DMG。每个平台先运行冻结解析器检查，再构建和启动桌面应用。
 
 首版为内部测试包，未使用商业代码签名或Apple公证。系统可能显示未知开发者提示。没有构建和验证成功的目标不会标为已交付。
