@@ -26,6 +26,23 @@ docker compose up -d --build --wait
 
 Caddy 负责 HTTPS 证书，生产覆盖配置启用 Secure Cookie，并将 `CSH_PUBLIC_URL` 设置为 `https://域名`。客户端中填写同一地址，通过邀请注册链接创建账号，再在客户端登录。执行后续备份、恢复和升级命令时，保留上述 `COMPOSE_FILE` 设置，使工具使用同一套生产配置。
 
+## 只有公网 IP 时使用 HTTPS
+
+在服务商允许直接使用 IP 访问网站的前提下，可以不购买域名。在 `.env` 中将 `CSH_DOMAIN` 设置为服务器的真实公网 IP，然后按以下顺序合并三份配置：
+
+```sh
+export COMPOSE_FILE=compose.yml:compose.production.yml:compose.ip.yml
+docker compose up -d --build --wait
+```
+
+此配置固定使用 Caddy 2.11.4，明确选择 Let's Encrypt 的 `shortlived` 证书策略，并启用 Secure Cookie。浏览器和客户端均使用 `https://实际公网IP`。普通裸 IP 的 Caddy 默认配置可能使用内部证书，因此需要保留第三份覆盖配置。[Caddy 证书配置说明](https://caddyserver.com/docs/caddyfile/directives/tls)
+
+云防火墙和系统防火墙均须允许公网访问 **TCP 80、443**；服务器也须能通过 HTTPS 连接 Let's Encrypt。HTTP-01 验证使用 80 端口，TLS-ALPN-01 使用 443 端口，均支持公网 IP。[官方验证机制](https://letsencrypt.org/docs/challenge-types/)
+
+部分机房另有网站域名白名单限制。TCP连接成功不代表HTTP和TLS业务已放行：如果外部HTTP被重定向到服务商提示页，或证书验证被拦截，应按服务商要求处理域名和白名单，再启动代理申请证书。此时增加安全组规则无法替代业务放行；不要把仅经SSH隧道完成的测试记录为公网HTTPS验收通过。
+
+IP 证书有效期为 **160 小时（约 6 天）**，由持续运行的 Caddy 自动续期。保留 **`caddy-data` 数据卷**中的证书和 ACME 账号状态，容器重建时不要清除该卷。这里使用浏览器信任的公共证书，无需安装自签名根证书或关闭证书验证。后续备份、恢复和升级也应保留上面的三文件 `COMPOSE_FILE` 设置。[Let's Encrypt IP 证书公告](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability.html)、[Caddy 自动 HTTPS 与存储](https://caddyserver.com/docs/automatic-https)
+
 ## 备份和恢复
 原始内容/图片在 hub-data 卷，账号/索引/评论在 hub-db 卷。二者必须一并备份。执行 `python3 scripts/backup.py --output /backup/某日期`，它停止 API 及 worker 写入后备份，再恢复服务；输出目录必须为空。备份目录应位于另一块磁盘或复制到异地，定期保留至少 7 份。
 

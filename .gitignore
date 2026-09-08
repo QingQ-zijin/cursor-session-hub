@@ -31,3 +31,6 @@ frontend/.runtime/
 desktop/gen/
 *.log
 
+# Upstream illustration is retained locally, excluded from future source packages.
+/screenshot.png
+

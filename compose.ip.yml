@@ -1,0 +1,7 @@
+# Public IP HTTPS. Use after compose.yml and compose.production.yml.
+# Set CSH_DOMAIN to the public IP. Keep the caddy-data volume for renewal.
+services:
+  proxy:
+    image: caddy:2.11.4-alpine
+    volumes:
+      - ./deploy/Caddyfile.ip:/etc/caddy/Caddyfile:ro
