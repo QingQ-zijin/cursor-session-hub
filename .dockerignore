@@ -1,0 +1,17 @@
+.git
+.venv
+.local
+.runtime
+.autonomous
+.playwright-cli
+node_modules
+desktop
+frontend/node_modules
+frontend/dist
+frontend/output
+frontend/.playwright-cli
+frontend/.runtime
+artifacts
+tests
+*.log
+.env

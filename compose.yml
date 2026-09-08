@@ -1,0 +1,55 @@
+name: cursor-session-hub
+x-hub: &hub
+  build: .
+  image: cursor-session-hub:local
+  environment: &environment
+    CSH_MODE: cloud
+    CSH_HOME: /data
+    CSH_DATABASE_URL: postgresql+psycopg://hub:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/hub
+    CSH_PUBLIC_URL: ${CSH_PUBLIC_URL:-http://localhost:8088}
+    CSH_COOKIE_SECURE: ${CSH_COOKIE_SECURE:-0}
+    CSH_WORKER_EXTERNAL: "1"
+    CSH_MIN_FREE_BYTES: ${CSH_MIN_FREE_BYTES:-5368709120}
+    CSH_MIN_FREE_RATIO: ${CSH_MIN_FREE_RATIO:-0.10}
+  volumes:
+    - hub-data:/data
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: hub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: hub
+    volumes: ["hub-db:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hub -d hub"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "work_mem=4MB", "-c", "max_connections=30"]
+    mem_limit: 768m
+    cpus: 1.0
+    restart: unless-stopped
+  api:
+    <<: *hub
+    ports: ["127.0.0.1:${CSH_PORT:-8088}:8000"]
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/capabilities', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+  worker:
+    <<: *hub
+    command: ["python", "-m", "hub", "worker"]
+    mem_limit: 512m
+    cpus: 1.0
+volumes:
+  hub-db:
+  hub-data:

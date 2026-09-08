@@ -1,0 +1,25 @@
+services:
+  api:
+    environment:
+      CSH_COOKIE_SECURE: "1"
+      CSH_PUBLIC_URL: https://${CSH_DOMAIN:?Set CSH_DOMAIN}
+  worker:
+    environment:
+      CSH_COOKIE_SECURE: "1"
+      CSH_PUBLIC_URL: https://${CSH_DOMAIN:?Set CSH_DOMAIN}
+  proxy:
+    image: caddy:2-alpine
+    environment:
+      CSH_DOMAIN: ${CSH_DOMAIN:?Set CSH_DOMAIN}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [api]
+    mem_limit: 128m
+    cpus: 0.25
+    restart: unless-stopped
+volumes:
+  caddy-data:
+  caddy-config:

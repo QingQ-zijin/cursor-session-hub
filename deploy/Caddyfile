@@ -1,0 +1,10 @@
+{$CSH_DOMAIN} {
+    encode zstd gzip
+    request_body { max_size 513MB }
+    reverse_proxy api:8000
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy same-origin
+        X-Frame-Options DENY
+    }
+}

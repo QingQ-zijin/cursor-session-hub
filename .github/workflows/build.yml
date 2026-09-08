@@ -1,0 +1,90 @@
+name: Build desktop installers
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        default: all
+        type: choice
+        options: [all, windows, mac-arm, mac-intel]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -r requirements.txt
+      - run: python -m pytest tests/test_hub_api.py tests/test_hub_remote.py tests/test_hub_ingest.py -q
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm, cache-dependency-path: frontend/package-lock.json}
+      - run: npm ci && npm test && npm run build
+        working-directory: frontend
+  package:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: windows
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - key: mac-arm
+            os: macos-14
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - key: mac-intel
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        if: inputs.platform == 'all' || inputs.platform == matrix.key
+      - uses: actions/setup-python@v5
+        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        with: {node-version: '22', cache: npm, cache-dependency-path: frontend/package-lock.json}
+      - name: Rust toolchain
+        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        shell: bash
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Dependencies and web assets
+        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        shell: bash
+        run: |
+          pip install -r requirements-build.txt
+          npm ci
+          npm --prefix frontend ci
+          npm --prefix frontend run build
+      - name: Freeze target-native Python core
+        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        run: python scripts/build_sidecar.py --target ${{ matrix.target }}
+      - name: Smoke test frozen parser
+        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        run: python scripts/smoke_sidecar.py --target ${{ matrix.target }}
+      - name: Build installer
+        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        working-directory: desktop
+        shell: bash
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '13.0'
+        run: ../node_modules/.bin/tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Smoke test packaged desktop
+        if: inputs.platform == 'all' || inputs.platform == matrix.key
+        run: python scripts/smoke_desktop.py --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        if: (inputs.platform == 'all' || inputs.platform == matrix.key) && success()
+        with:
+          name: cursor-session-hub-${{ matrix.key }}
+          path: |
+            desktop/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+            desktop/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            .runtime/smoke-*.json
+          if-no-files-found: error
+          retention-days: 14

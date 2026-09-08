@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+.cursor/
+.claude/
+.local/
+
+.autonomous/
+.playwright-cli/
+.venv/
+node_modules/
+frontend/dist/
+desktop/target/
+desktop/binaries/
+desktop/runtime/
+.runtime/
+artifacts/
+.env
+frontend/output/
+frontend/.playwright-cli/
+frontend/.runtime/
+desktop/gen/
+*.log
+
