@@ -226,7 +226,7 @@ fn main() {
                     state.client.get(format!("http://127.0.0.1:{port}/api/v1/capabilities")).bearer_auth(&state.token).send().await
                 });
                 let success = check.map(|r|r.status().is_success()).unwrap_or(false);
-                if let Ok(path) = std::env::var("CSH_SMOKE_OUTPUT") { let _ = std::fs::write(path, json!({"ok":success,"backend_ready":true}).to_string()); }
+                if let Ok(path) = std::env::var("CSH_SMOKE_OUTPUT") { let _ = std::fs::write(path, json!({"ok":success,"backend_ready":true,"version":env!("CARGO_PKG_VERSION")}).to_string()); }
                 terminate_owned_backend(&state);
                 app.handle().exit(if success {0} else {1});
             } else if let Some(window) = app.get_webview_window("main") { window.show()?; }

@@ -84,7 +84,9 @@ jobs:
         shell: bash
         env:
           MACOSX_DEPLOYMENT_TARGET: '13.0'
-        run: ../node_modules/.bin/tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        run: |
+          python ../scripts/prepare_installer_output.py --target ${{ matrix.target }}
+          ../node_modules/.bin/tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
       - name: Smoke test packaged desktop
         if: inputs.platform == 'all' || inputs.platform == matrix.key
         run: python scripts/smoke_desktop.py --target ${{ matrix.target }}
