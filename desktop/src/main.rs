@@ -222,7 +222,9 @@ fn main() {
             });
             if std::env::args().any(|s|s == "--smoke-test") {
                 let state = app.state::<CoreState>();
-                let check = tauri::async_runtime::block_on(state.client.get(format!("http://127.0.0.1:{port}/api/v1/capabilities")).bearer_auth(&state.token).send());
+                let check = tauri::async_runtime::block_on(async {
+                    state.client.get(format!("http://127.0.0.1:{port}/api/v1/capabilities")).bearer_auth(&state.token).send().await
+                });
                 let success = check.map(|r|r.status().is_success()).unwrap_or(false);
                 if let Ok(path) = std::env::var("CSH_SMOKE_OUTPUT") { let _ = std::fs::write(path, json!({"ok":success,"backend_ready":true}).to_string()); }
                 terminate_owned_backend(&state);
