@@ -25,10 +25,15 @@ def iter_sources(paths=None):
     if ide.is_file():
         conn = common.connect_ro(ide)
         try:
-            # Read one composer metadata row, never bubble payloads or tool outputs.
-            for key, size in conn.execute("SELECT key,length(value) FROM cursorDiskKV WHERE key LIKE 'composerData:%'"):
+            # A BINARY lexical prefix range uses Cursor's primary-key index;
+            # default SQLite LIKE can otherwise scan the entire multi-GB store.
+            # Count bytes (also for UTF-8 TEXT) before fetching any value.
+            for key, size in conn.execute(
+                'SELECT key,octet_length(value) FROM cursorDiskKV WHERE key>=? AND key<?',
+                ('composerData:', 'composerData;'),
+            ):
                 native = key.split(':', 1)[1]
-                if size > 8388608:
+                if (size or 0) > 8388608:
                     yield {'path': str(ide), 'native_id': native, 'title': native, 'source_kind': 'cursor_ide', 'project': '', 'status': 'oversized_metadata'}
                     continue
                 raw = conn.execute('SELECT value FROM cursorDiskKV WHERE key=?', (key,)).fetchone()[0]

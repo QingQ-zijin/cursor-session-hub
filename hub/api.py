@@ -132,6 +132,11 @@ def create_app(config: Config | None = None):
         engine.dispose()
 
     app = FastAPI(title='Cursor Session Hub', version='0.1.0', lifespan=lifespan)
+    # Register before the HTTP decorator below so this sits directly around
+    # routing. Receive-limit exceptions then reach FastAPI without being
+    # wrapped in BaseHTTPMiddleware's request-relay task groups.
+    from .body_limits import StreamBodyLimitMiddleware
+    app.add_middleware(StreamBodyLimitMiddleware,config=config)
     app.state.config = config
     app.state.engine = engine
     @app.exception_handler(RequestValidationError)
@@ -147,13 +152,6 @@ def create_app(config: Config | None = None):
 
     @app.middleware('http')
     async def protect_origins(request, call_next):
-        content_length=request.headers.get('content-length')
-        if content_length:
-            try: length=int(content_length)
-            except ValueError: return Response(content='{"detail":"无效请求长度"}',status_code=400,media_type='application/json')
-            limit=config.max_package_bytes+1024**2 if request.url.path=='/api/v1/imports' else config.max_chunk_bytes if '/chunks/' in request.url.path else 1024**2
-            if length>limit:
-                return Response(content='{"detail":"请求超过大小限制"}',status_code=413,media_type='application/json')
         if request.method not in ('GET', 'HEAD', 'OPTIONS'):
             origin = request.headers.get('origin')
             expected = config.public_url.rstrip('/') or str(request.base_url).rstrip('/')
