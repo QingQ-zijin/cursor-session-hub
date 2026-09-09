@@ -61,6 +61,9 @@ export type EventRecord = {
   event: Record<string, unknown>;
 };
 export type Job = {
+  export_format?: 'html' | 'markdown' | 'pdf';
+  download_filename?: string;
+  download_mime?: string;
   id: string;
   kind: string;
   state: string;

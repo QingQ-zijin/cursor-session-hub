@@ -93,7 +93,11 @@ def check_disk(config):
         raise HTTPException(507, '磁盘空间不足，已暂停新上传')
 
 def job_public(row):
-    return {key: row.get(key) for key in ('id', 'kind', 'state', 'progress', 'total', 'error', 'session_id', 'revision_id', 'created_at', 'updated_at')}
+    result = {key: row.get(key) for key in ('id', 'kind', 'state', 'progress', 'total', 'error', 'session_id', 'revision_id', 'created_at', 'updated_at')}
+    if row.get('kind') == 'export':
+        from .export_names import export_metadata
+        result.update(export_metadata(row))
+    return result
 
 def enqueue(conn, config, owner_id, kind, session_id=None, payload=None):
     count = conn.execute(select(func.count()).select_from(db.jobs).where(db.jobs.c.state.in_(ACTIVE_JOBS))).scalar_one()
@@ -131,7 +135,7 @@ def create_app(config: Config | None = None):
                 await asyncio.to_thread(worker.join,10)
         engine.dispose()
 
-    app = FastAPI(title='Cursor Session Hub', version='1.1.0', lifespan=lifespan)
+    app = FastAPI(title='Cursor Session Hub', version='1.1.1', lifespan=lifespan)
     # Register before the HTTP decorator below so this sits directly around
     # routing. Receive-limit exceptions then reach FastAPI without being
     # wrapped in BaseHTTPMiddleware's request-relay task groups.
@@ -828,7 +832,7 @@ def create_app(config: Config | None = None):
 
     @router.post('/sessions/{ident}/exports')
     def export(ident:str,body:Export,user=Depends(require_user)):
-        if body.format not in ('html','markdown'): raise HTTPException(422,'导出格式仅支持 html 或 markdown')
+        if body.format not in ('html','markdown','pdf'): raise HTTPException(422,'支持导出 HTML、Markdown 和 PDF')
         with admission_lock,engine.begin() as conn:
             rev=revision_row(conn,ident,body.revision_id,user)
             return {'job':job_public(enqueue(conn,config,user['id'],'export',ident,{'format':body.format,'revision_id':rev['id']}))}

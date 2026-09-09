@@ -784,7 +784,7 @@ export function Reader({
       onError(e);
     }
   }
-  async function exportSession(format: "html" | "markdown") {
+  async function exportSession(format: "html" | "markdown" | "pdf") {
     try {
       await api.post("/sessions/" + session.id + "/exports", {
         format,
@@ -850,6 +850,9 @@ export function Reader({
                 <button onClick={() => void exportSession("markdown")}>
                   <FileText size={14} />
                   导出 Markdown
+                </button>
+                <button onClick={() => void exportSession("pdf")}>
+                  <FileText size={14} />导出 PDF
                 </button>
                 <button
                   onClick={() => {

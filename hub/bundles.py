@@ -269,9 +269,29 @@ def export_job(config, job_id):
             session = conn.execute(select(db.sessions).where(db.sessions.c.id == job['session_id'], db.sessions.c.revoked == False)).mappings().one()
             revision_id = job['payload_json'].get('revision_id') or session['current_revision']
             fmt = job['payload_json'].get('format', 'markdown')
-            target = config.home / 'exports' / (job_id + ('.html' if fmt == 'html' else '.md'))
+            from .export_names import FORMATS, filename
+            target = config.home / 'exports' / (job_id + FORMATS[fmt][0])
             temp = target.with_suffix('.partial')
             from .documents import readable_event, readable_blocks, block_markdown, markdown_renderer, write_math_assets
+            if fmt == 'pdf':
+                from .pdf_export import PDFWriter
+                from .ingest import _check_job
+                writer = PDFWriter(temp, session['title'], lambda: _check_job(conn, job_id))
+                writer.heading(session['title'], 1)
+                last = 0
+                while True:
+                    rows = conn.execute(select(db.events).where(db.events.c.revision_id == revision_id, db.events.c.seq > last).order_by(db.events.c.seq).limit(40)).mappings().all()
+                    if not rows: break
+                    for row in rows:
+                        event = readable_event(hydrate_event(conn, row['event_json']))
+                        writer.event(event, lambda aid: conn.execute(select(db.assets).where(db.assets.c.id == aid)).mappings().first() if aid else None)
+                    last = rows[-1]['seq']; _check_job(conn, job_id)
+                    conn.execute(db.jobs.update().where(db.jobs.c.id == job_id).values(progress=last, total=session['event_count'], updated_at=db.now()))
+                    conn.commit()
+                writer.finish(); os.replace(temp, target)
+                conn.execute(db.jobs.update().where(db.jobs.c.id == job_id).values(state='succeeded', result_json={'path': str(target), 'filename': filename(session['title'], fmt), 'mime': FORMATS[fmt][1]}, updated_at=db.now()))
+                conn.commit()
+                return
             render = markdown_renderer()
             with temp.open('w', encoding='utf-8') as out:
                 math_assets = False
@@ -335,7 +355,7 @@ def export_job(config, job_id):
                         out.write('<script>renderMathInElement(document.body,{delimiters:[{left:"$$",right:"$$",display:true},{left:"$",right:"$",display:false},{left:"\\\\(",right:"\\\\)",display:false},{left:"\\\\[",right:"\\\\]",display:true}],throwOnError:false,trust:false,ignoredTags:["script","noscript","style","textarea","pre","code","template"]});</script>')
                     out.write('</body></html>')
             os.replace(temp, target)
-            conn.execute(db.jobs.update().where(db.jobs.c.id == job_id).values(state='succeeded', result_json={'path': str(target), 'filename': 'cursor-session' + target.suffix, 'mime': 'text/html' if fmt == 'html' else 'text/markdown'}, updated_at=db.now()))
+            conn.execute(db.jobs.update().where(db.jobs.c.id == job_id).values(state='succeeded', result_json={'path': str(target), 'filename': filename(session['title'], fmt), 'mime': FORMATS[fmt][1]}, updated_at=db.now()))
             conn.commit()
     finally:
         engine.dispose()

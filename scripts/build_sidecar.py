@@ -21,6 +21,7 @@ def main():
          '--hidden-import','hub.worker','--hidden-import','hub.remote','--hidden-import','hub.bundles',
          '--hidden-import','hub.documents','--collect-all','pypdf',
          '--add-data',str(ROOT/'frontend/dist/export')+os.pathsep+'hub/export_assets',
+         '--add-data',str(ROOT/'hub/fonts')+os.pathsep+'hub/fonts','--collect-all','reportlab',
          str(ROOT/'scripts'/'sidecar_entry.py')]
     subprocess.run(cmd,cwd=ROOT,check=True)
     ext='.exe' if sys.platform=='win32' else ''

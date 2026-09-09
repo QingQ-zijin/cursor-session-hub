@@ -70,7 +70,13 @@ def main():
    imported_pdf=call('/imports/path',{'path':str(pdf)})
    pdf_job=wait_job(imported_pdf['job']['id'])
    assert call('/sessions/'+imported_pdf['session_id'])['status']=='ready_with_diagnostics'
-   (out/f'smoke-core-{a.target}.json').write_text(json.dumps({'ok':True,'events':2,'target':a.target,'document_imports':['markdown','html','pdf'],'offline_math_assets':True}),encoding='utf-8')
+   pdf_export=call('/sessions/'+imported['session_id']+'/exports',{'format':'pdf'})
+   pdf_result=wait_job(pdf_export['job']['id'])
+   assert pdf_result['download_filename'].endswith('.pdf') and pdf_result['export_format']=='pdf'
+   from pypdf import PdfReader
+   text=''.join(page.extract_text() for page in PdfReader(home/'exports'/(pdf_export['job']['id']+'.pdf')).pages)
+   assert '你好' in text and '已完成' in text and 'print(1)' in text
+   (out/f'smoke-core-{a.target}.json').write_text(json.dumps({'ok':True,'events':2,'target':a.target,'document_imports':['markdown','html','pdf'],'pdf_export':True,'offline_math_assets':True}),encoding='utf-8')
    print('Frozen core smoke PASS:',a.target)
   finally:
    try: owned = psutil.Process(process.pid).children(recursive=True) + [psutil.Process(process.pid)]

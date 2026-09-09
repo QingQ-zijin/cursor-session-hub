@@ -118,7 +118,10 @@ export async function download(path: string, filename: string) {
     }
   ).showSaveFilePicker;
   const handle = savePicker
-    ? await savePicker({ suggestedName: filename })
+    ? await savePicker({ suggestedName: filename, ...(
+        filename.endsWith('.md') ? {types:[{description:'Markdown 文档',accept:{'text/markdown':['.md']}}]} :
+        filename.endsWith('.pdf') ? {types:[{description:'PDF 文档',accept:{'application/pdf':['.pdf']}}]} :
+        filename.endsWith('.html') ? {types:[{description:'HTML 网页',accept:{'text/html':['.html']}}]} : {}) })
     : undefined;
   const headers = new Headers();
   if (localToken) headers.set("Authorization", "Bearer " + localToken);

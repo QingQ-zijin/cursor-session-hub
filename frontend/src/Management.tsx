@@ -824,14 +824,14 @@ export function JobsPanel({
                       onClick={() =>
                         void download(
                           api.path("/exports/" + j.id + "/download"),
-                          "session-" + j.id + ".html",
+                          j.download_filename || "cursor-session" + (j.export_format === "pdf" ? ".pdf" : j.export_format === "html" ? ".html" : ".md"),
                         )
                           .then(() => onNotice("导出文件已保存"))
                           .catch(onError)
                       }
                     >
                       <Download size={15} />
-                      下载
+                      下载 {j.export_format === 'pdf' ? 'PDF' : j.export_format === 'html' ? 'HTML' : 'Markdown'}
                     </button>
                   )}
                 </div>

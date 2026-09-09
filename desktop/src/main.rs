@@ -96,7 +96,14 @@ async fn native_asset(state: State<'_, CoreState>, path: String) -> Result<Strin
 async fn save_download(app: tauri::AppHandle, state: State<'_, CoreState>, path: String, filename: String) -> Result<Option<String>, String> {
     let url = endpoint(&state, &path)?;
     let name = std::path::Path::new(&filename).file_name().and_then(|s|s.to_str()).unwrap_or("transcript.html").to_owned();
-    let chosen = tauri::async_runtime::spawn_blocking(move || app.dialog().file().set_file_name(name).blocking_save_file()).await.map_err(|e|e.to_string())?;
+    let chosen = tauri::async_runtime::spawn_blocking(move || {
+        let dialog = app.dialog().file().set_file_name(&name);
+        let dialog = if name.ends_with(".md") { dialog.add_filter("Markdown 文档 (*.md)", &["md"]) }
+            else if name.ends_with(".pdf") { dialog.add_filter("PDF 文档 (*.pdf)", &["pdf"]) }
+            else if name.ends_with(".html") { dialog.add_filter("HTML 网页 (*.html)", &["html"]) }
+            else { dialog };
+        dialog.blocking_save_file()
+    }).await.map_err(|e|e.to_string())?;
     let Some(chosen) = chosen else { return Ok(None); };
     let target = chosen.into_path().map_err(|e|e.to_string())?;
     let response = state.client.get(url).bearer_auth(&state.token).send().await.map_err(|e|e.to_string())?;
