@@ -76,7 +76,7 @@ async fn open_release(app: tauri::AppHandle, url: String) -> Result<(), String> 
 #[tauri::command]
 async fn choose_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        app.dialog().file().add_filter("Cursor JSONL", &["jsonl"]).blocking_pick_files()
+        app.dialog().file().add_filter("会话与文档", &["jsonl", "json", "md", "markdown", "html", "htm", "pdf"]).blocking_pick_files()
             .unwrap_or_default().into_iter().map(|p| p.into_path().map(|p| p.to_string_lossy().to_string()).map_err(|e|e.to_string())).collect()
     }).await.map_err(|e|e.to_string())?
 }

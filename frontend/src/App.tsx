@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   ArrowUpRight,
@@ -448,6 +448,13 @@ export default function App() {
   const projects = [
     ...new Set(sessions.map((s) => s.project).filter(Boolean)),
   ] as string[];
+  const workspaceSessions = new Map<string, Session[]>();
+  for (const session of sessions) {
+    const key = session.project || '';
+    if (!workspaceSessions.has(key)) workspaceSessions.set(key, []);
+    workspaceSessions.get(key)!.push(session);
+  }
+  const visibleSessions = local && !team ? [...workspaceSessions.values()].flat() : sessions;
   const title =
     nav === "local"
       ? "本地记录"
@@ -668,7 +675,7 @@ export default function App() {
                     ) : (
                       <Upload size={15} />
                     )}
-                    导入 JSONL
+                    导入文件
                   </button>
                   <button
                     className="button"
@@ -682,7 +689,7 @@ export default function App() {
                     className="sr-only"
                     type="file"
                     multiple
-                    accept=".jsonl,.json,.txt"
+                    accept=".jsonl,.json,.md,.markdown,.html,.htm,.pdf"
                     onChange={(e) => {
                       if (e.target.files) void importFiles(e.target.files);
                     }}
@@ -859,7 +866,7 @@ export default function App() {
                           ? "在会话或消息旁点击收藏图标。"
                           : team
                             ? "在桌面端选择会话，同步后在这里查看。"
-                            : "导入 JSONL，或从本机 Cursor 发现会话。"}
+                            : "导入文件，或从本机 Cursor 发现会话。"}
                     </p>
                     {local && !team && nav !== "favorites" && !searchQuery && (
                       <button
@@ -872,7 +879,8 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  sessions.map((s) => (
+                  visibleSessions.map((s, i) => (<Fragment key={s.id}>
+                    {local && !team && (i === 0 || visibleSessions[i-1].project !== s.project) && <h3 className="workspace-group" title={s.project}>{s.project?.split(/[\\/]/).filter(Boolean).pop() || '未记录工作区'}</h3>}
                     <div
                       className={
                         "session-row " + (selected?.id === s.id ? "active" : "")
@@ -969,7 +977,7 @@ export default function App() {
                             </button>
                           )}
                       </div>
-                    </div>
+                    </div></Fragment>
                   ))
                 )}
               </div>
@@ -1102,7 +1110,7 @@ export default function App() {
           <div className="help-content">
             <h3>本地阅读</h3>
             <p>
-              导入 JSONL，或从 Cursor
+              导入文件，或从 Cursor
               发现记录并同步到本地库。解析在后台排队进行，无需登录。
             </p>
             <h3>团队协作</h3>

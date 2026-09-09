@@ -18,3 +18,8 @@ tests
 .env.*
 !.env.example
 screenshot.png
+
+release-assets
+release-input
+frontend/test-results
+frontend/playwright-report

@@ -41,3 +41,4 @@ desktop/gen/
 /release-input/
 /frontend/test-results/
 /frontend/playwright-report/
+/frontend/public/export/

@@ -19,6 +19,8 @@ def main():
          '--hidden-import','psycopg','--hidden-import','psycopg_binary',
          '--hidden-import','cursor_parser','--hidden-import','cursor_binary','--hidden-import','common',
          '--hidden-import','hub.worker','--hidden-import','hub.remote','--hidden-import','hub.bundles',
+         '--hidden-import','hub.documents','--collect-all','pypdf',
+         '--add-data',str(ROOT/'frontend/dist/export')+os.pathsep+'hub/export_assets',
          str(ROOT/'scripts'/'sidecar_entry.py')]
     subprocess.run(cmd,cwd=ROOT,check=True)
     ext='.exe' if sys.platform=='win32' else ''

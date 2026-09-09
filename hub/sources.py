@@ -4,9 +4,59 @@ import json
 import os
 from pathlib import Path
 import sys
+import re
+import sqlite3
+from urllib.parse import unquote, urlparse
 from sqlalchemy import select
 from . import db
 import common
+
+
+def workspace_path(value):
+    if isinstance(value, dict):
+        return workspace_path(value.get('fsPath') or value.get('path') or value.get('uri') or '')
+    if not isinstance(value, str):
+        return ''
+    if value.startswith('file:'):
+        uri = urlparse(value)
+        value = ('//' + uri.netloc if uri.netloc else '') + unquote(uri.path)
+    if re.match(r'^/[A-Za-z]:', value):
+        value = value[1:]
+    return value
+
+
+def composer_project(data):
+    workspace = data.get('workspaceIdentifier') or {}
+    value = workspace_path(workspace)
+    if value:
+        return value
+    repos = data.get('trackedGitRepos') or []
+    return workspace_path(repos[0].get('repoPath', '')) if repos and isinstance(repos[0], dict) else ''
+
+
+def workspace_catalog(ide):
+    """Read workspace descriptors and small UI metadata, never conversation bodies."""
+    catalog = {}
+    for folder in (ide.parent.parent / 'workspaceStorage').glob('*'):
+        descriptor = folder / 'workspace.json'
+        store = folder / 'state.vscdb'
+        if not descriptor.is_file() or descriptor.stat().st_size > 65536 or not store.is_file():
+            continue
+        try:
+            data = json.loads(descriptor.read_text(encoding='utf-8'))
+            project = workspace_path(data.get('folder') or data.get('workspace'))
+            connection = common.connect_ro(store)
+            try:
+                row = connection.execute("SELECT value FROM ItemTable WHERE key='composer.composerData' AND octet_length(value)<=8388608").fetchone()
+                meta = common.loads_or_none(row[0]) if row else {}
+                for composer in (meta or {}).get('allComposers', []):
+                    if isinstance(composer, dict) and composer.get('composerId'):
+                        catalog[composer['composerId']] = {'title': composer.get('name') or '', 'project': project}
+            finally:
+                connection.close()
+        except (OSError, ValueError, sqlite3.Error, AttributeError):
+            continue
+    return catalog
 
 
 def cursor_locations():
@@ -22,6 +72,7 @@ def cursor_locations():
 
 def iter_sources(paths=None):
     ide, projects, chats = paths or cursor_locations()
+    catalog = workspace_catalog(ide)
     if ide.is_file():
         conn = common.connect_ro(ide)
         try:
@@ -34,15 +85,18 @@ def iter_sources(paths=None):
             ):
                 native = key.split(':', 1)[1]
                 if (size or 0) > 8388608:
-                    yield {'path': str(ide), 'native_id': native, 'title': native, 'source_kind': 'cursor_ide', 'project': '', 'status': 'oversized_metadata'}
+                    meta = catalog.get(native, {})
+                    yield {'path': str(ide), 'native_id': native, 'title': meta.get('title') or '未命名 Cursor 会话', 'source_kind': 'cursor_ide', 'project': meta.get('project', ''), 'status': 'oversized_metadata'}
                     continue
                 raw = conn.execute('SELECT value FROM cursorDiskKV WHERE key=?', (key,)).fetchone()[0]
                 data = common.loads_or_none(raw) or {}
                 if not isinstance(data, dict):
                     data = {}
-                import cursor_parser
-                yield {'path': str(ide), 'native_id': native, 'title': data.get('name') or native,
-                       'source_kind': 'cursor_ide', 'project': cursor_parser._composer_cwd(data)}
+                meta = catalog.get(native, {})
+                meta = {'title': data.get('name') or meta.get('title') or '未命名 Cursor 会话',
+                        'project': composer_project(data) or meta.get('project', '')}
+                catalog[native] = meta
+                yield {'path': str(ide), 'native_id': native, **meta, 'source_kind': 'cursor_ide'}
         finally:
             conn.close()
     if chats.is_dir():
@@ -51,10 +105,10 @@ def iter_sources(paths=None):
             conn = common.connect_ro(path)
             try:
                 head = cursor_parser._store_header(conn, path)
-                yield {'path': str(path), 'native_id': head['session_id'], 'title': head['title'] or path.parent.name,
+                yield {'path': str(path), 'native_id': head['session_id'], 'title': head['title'] or '未命名 Cursor 会话',
                        'source_kind': 'cursor_cli', 'project': head['cwd']}
             except Exception:
-                yield {'path': str(path), 'native_id': path.parent.name, 'title': path.parent.name,
+                yield {'path': str(path), 'native_id': path.parent.name, 'title': '无法读取的 Cursor 会话',
                        'source_kind': 'cursor_cli', 'project': '', 'status': 'unreadable'}
             finally:
                 conn.close()
@@ -64,8 +118,9 @@ def iter_sources(paths=None):
             if not folder.is_dir():
                 continue
             for path in folder.rglob('*.jsonl'):
-                yield {'path': str(path), 'native_id': path.stem, 'title': path.stem,
-                       'source_kind': 'cursor_jsonl', 'project': project.name}
+                meta = catalog.get(path.stem, {})
+                yield {'path': str(path), 'native_id': path.stem, 'title': meta.get('title') or '未命名 Cursor 会话',
+                       'source_kind': 'cursor_jsonl', 'project': meta.get('project') or project.name}
 
 
 def discover_sources(config, paths=None):
@@ -89,6 +144,13 @@ def discover_sources(config, paths=None):
                     if existing['mtime'] != mtime or existing['size'] != stat.st_size:
                         values['status'] = 'changed'
                     conn.execute(db.sources.update().where(db.sources.c.id == existing['id']).values(**values))
+                    if existing['session_id']:
+                        session = conn.execute(select(db.sessions).where(db.sessions.c.id == existing['session_id'])).mappings().first()
+                        if session and not (session['metadata_json'] or {}).get('custom_title'):
+                            changes = {'project': entry['project']}
+                            if entry['title'] not in ('未命名 Cursor 会话', '无法读取的 Cursor 会话'):
+                                changes.update(title=entry['title'], original_title=entry['title'])
+                            conn.execute(db.sessions.update().where(db.sessions.c.id == session['id']).values(**changes))
                 else:
                     conn.execute(db.sources.insert().values(id=db.new_id(), owner_id='local', **values))
             count += 1

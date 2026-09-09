@@ -126,7 +126,8 @@ def normalize_jsonl(rec):
                 return [strip_internal(child) for child in value]
             return value
         return strip_internal(rec)
-    role = rec.get('role')
+    envelope = rec.get('message') if isinstance(rec.get('message'), dict) else {}
+    role = rec.get('role') or envelope.get('role') or (rec.get('type') if rec.get('type') in ('user', 'assistant', 'tool') else None)
     if role not in ('user', 'assistant', 'tool'):
         return {'kind': 'raw', 'record_type': str(rec.get('type', role or 'unknown')), 'payload': rec, '_diagnostic': True}
     content = (rec.get('message') or {}).get('content') if isinstance(rec.get('message'), dict) else rec.get('content')
@@ -725,7 +726,7 @@ def index_events(config, job_id, iterator, *, revision_id=None, source_base=None
                 seq += 1
                 event_id = db.new_id()
                 compact, event = writer.add(original, event_id)
-                if event.get('kind') == 'user' or round_number == 0:
+                if event.get('kind') == 'user' or event.get('document_page') or round_number == 0:
                     if round_data:
                         conn.execute(db.rounds.update().where(db.rounds.c.id == round_data['id']).values(end_seq=seq - 1, count=seq - round_data['start_seq']))
                     round_number += 1
@@ -814,12 +815,13 @@ def ingest_path(config, job_id):
             conn.execute(db.jobs.update().where(db.jobs.c.id == job_id).values(revision_id=revision_id))
     folder = config.home / 'raw' / revision_id
     folder.mkdir(parents=True, exist_ok=True)
-    snapshot = folder / ('source.jsonl' if kind in ('cursor_jsonl', 'jsonl') else 'source.db')
+    document = kind in ('markdown', 'html', 'pdf')
+    snapshot = folder / ('source.' + kind if document else 'source.jsonl' if kind in ('cursor_jsonl', 'jsonl') else 'source.db')
     with engine.connect() as conn:
         rev = conn.execute(select(db.revisions).where(db.revisions.c.id == revision_id)).mappings().one()
     if not rev['source_hash']:
         temporary = snapshot.with_suffix('.partial')
-        if kind in ('cursor_jsonl', 'jsonl'):
+        if kind in ('cursor_jsonl', 'jsonl') or document:
             with path.open('rb') as src, temporary.open('wb') as dest:
                 # Capture the initial length so an active file cannot make a
                 # snapshot grow indefinitely while the user keeps working.
@@ -871,6 +873,9 @@ def ingest_path(config, job_id):
         iterator = iter_ide_events(snapshot, native_id, folder)
     elif kind == 'cursor_cli':
         iterator = iter_cli_events(snapshot, folder)
+    elif document:
+        from .documents import iter_document
+        iterator = iter_document(snapshot, kind)
     else:
         raise ValueError('Unsupported Cursor source kind: ' + kind)
     source_base = Path(source['path']).parent if source else path.parent

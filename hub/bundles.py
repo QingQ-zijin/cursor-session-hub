@@ -271,9 +271,14 @@ def export_job(config, job_id):
             fmt = job['payload_json'].get('format', 'markdown')
             target = config.home / 'exports' / (job_id + ('.html' if fmt == 'html' else '.md'))
             temp = target.with_suffix('.partial')
+            from .documents import readable_event, readable_blocks, block_markdown, markdown_renderer, write_math_assets
+            render = markdown_renderer()
             with temp.open('w', encoding='utf-8') as out:
+                math_assets = False
                 if fmt == 'html':
-                    out.write('<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>' + html.escape(session['title']) + '</title><style>body{max-width:980px;margin:40px auto;padding:0 20px;font:16px/1.7 system-ui}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f6fa;padding:16px}section{border-bottom:1px solid #ddd;padding:20px 0}img{max-width:100%}</style><h1>' + html.escape(session['title']) + '</h1>')
+                    out.write('<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\'; style-src \'unsafe-inline\'; img-src data:; font-src data:; base-uri \'none\'"><title>' + html.escape(session['title']) + '</title><style>body{max-width:980px;margin:40px auto;padding:0 20px;font:16px/1.7 system-ui;color:#202630}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f6fa;padding:16px}section{border-bottom:1px solid #ddd;padding:20px 0}img{max-width:100%}table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:8px}blockquote{border-left:3px solid #ccd;padding-left:16px}template{display:none}</style>')
+                    math_assets = write_math_assets(out)
+                    out.write('</head><body><h1>' + html.escape(session['title']) + '</h1>')
                 else:
                     out.write('# ' + session['title'] + '\n\n')
                 last = 0
@@ -282,13 +287,14 @@ def export_job(config, job_id):
                     if not rows:
                         break
                     for row in rows:
-                        event = hydrate_event(conn, row['event_json'])
-                        title = event.get('kind', 'message')
+                        event = readable_event(hydrate_event(conn, row['event_json']))
+                        kind = event.get('kind', 'notice')
+                        title = {'user':'用户','assistant':'Cursor','tool':'工具','reasoning':'思考','notice':'记录'}.get(kind, '解析记录')
                         if fmt == 'html':
-                            out.write('<section><h2>' + html.escape(title) + '</h2>')
+                            out.write('<section data-csh-event="' + html.escape(kind, quote=True) + '"><h2>' + title + '</h2>')
                         else:
-                            out.write('## ' + title + '\n\n')
-                        blocks = event.get('blocks') or [{'type': 'text', 'text': event.get('text', json.dumps(event.get('payload', ''), ensure_ascii=False))}]
+                            out.write('## ' + title + '\n\n<!-- csh-event:' + kind + ' -->\n')
+                        blocks = readable_blocks(event)
                         for block in blocks:
                             if block.get('type') == 'image':
                                 aid = block.get('asset_id')
@@ -303,14 +309,21 @@ def export_job(config, job_id):
                                 else:
                                     out.write('[图片：' + (asset['name'] if asset else '未记录') + ']\n')
                                 continue
-                            text = block.get('text', '')
-                            if block.get('type') == 'tool_use':
-                                text = block.get('name', 'tool') + '\n' + json.dumps(block.get('input', {}), ensure_ascii=False, indent=2) + '\n' + (block.get('result') or {}).get('text', '')
-                            out.write('<pre>' + html.escape(text) + '</pre>' if fmt == 'html' else text + '\n\n')
+                            text = block_markdown(block)
+                            if fmt == 'html':
+                                block_type = block.get('type', 'text')
+                                raw_text = json.dumps(block, ensure_ascii=False) if block_type == 'tool_use' else block.get('text', '')
+                                out.write('<template data-csh-block="' + html.escape(block_type, quote=True) + '">' + html.escape(raw_text) + '</template>')
+                                body = render.render(text)
+                                if block_type in ('tool_use','thinking'):
+                                    out.write('<details open><summary>' + ('工具记录' if block_type == 'tool_use' else '已保存的思考') + '</summary>' + body + '</details>')
+                                else: out.write(body)
+                            else: out.write(text + '\n\n')
                         if event.get('raw_content_id'):
                             out.write('<p>原始诊断数据保存在会话库中。</p>' if fmt == 'html' else '\n原始诊断数据保存在会话库中。\n')
                         if fmt == 'html':
                             out.write('</section>')
+                        else: out.write('<!-- /csh-event -->\n\n')
                     last = rows[-1]['seq']
                     state = conn.execute(select(db.jobs.c.state, db.jobs.c.cancel_requested).where(db.jobs.c.id == job_id)).one()
                     if state.cancel_requested or state.state in ('paused', 'cancelled'):
@@ -318,7 +331,9 @@ def export_job(config, job_id):
                     conn.execute(db.jobs.update().where(db.jobs.c.id == job_id).values(progress=last, total=session['event_count'], updated_at=db.now()))
                     conn.commit()
                 if fmt == 'html':
-                    out.write('</html>')
+                    if math_assets:
+                        out.write('<script>renderMathInElement(document.body,{delimiters:[{left:"$$",right:"$$",display:true},{left:"$",right:"$",display:false},{left:"\\\\(",right:"\\\\)",display:false},{left:"\\\\[",right:"\\\\]",display:true}],throwOnError:false,trust:false,ignoredTags:["script","noscript","style","textarea","pre","code","template"]});</script>')
+                    out.write('</body></html>')
             os.replace(temp, target)
             conn.execute(db.jobs.update().where(db.jobs.c.id == job_id).values(state='succeeded', result_json={'path': str(target), 'filename': 'cursor-session' + target.suffix, 'mime': 'text/html' if fmt == 'html' else 'text/markdown'}, updated_at=db.now()))
             conn.commit()

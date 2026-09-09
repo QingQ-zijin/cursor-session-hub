@@ -2546,4 +2546,12 @@ small {
 .sidebar-footer .version-button { margin-left: auto; font-size: 11px; width: auto; gap: 5px; }
 .sidebar-footer .update-available { color: var(--accent); }
 .release-notes { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 280px; overflow: auto; }
+.workspace-filter { padding: 0 24px 12px; }
+.workspace-filter label { display: flex; align-items: center; gap: 12px; }
+.workspace-filter select { flex: 1; min-width: 0; }
+.workspace-group { padding: 14px 20px; margin: 0; background: var(--surface); font-size: 14px; border-bottom: 1px solid var(--line); }
+.workspace-group small { display: block; font-size: 11px; font-weight: normal; color: var(--secondary); overflow-wrap: anywhere; }
+.source-row details { color: var(--secondary); font-size: 11px; margin-top: 5px; overflow-wrap: anywhere; }
+.event-content > .markdown pre { max-height: none; }
+.event { content-visibility: auto; contain-intrinsic-size: auto 200px; }
 .update-content p[role="status"] { display: flex; align-items: center; gap: 8px; }

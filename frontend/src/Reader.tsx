@@ -1,3 +1,4 @@
+import { readContent } from "./content";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -97,92 +98,23 @@ function Content({
       : obj?.preview !== undefined
         ? stringify(obj.preview)
         : stringify(value);
-  const [pages, setPages] = useState<string[]>([]),
-    [contentHistory, setContentHistory] = useState<string[]>([]),
-    [cursor, setCursor] = useState<string | null>(""),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [slice, setSlice] = useState(0);
-  const text = pages.length ? pages[pages.length - 1] : initial;
-  const view = text.slice(slice * 24000, (slice + 1) * 24000);
-  async function more(previous = false) {
-    if (!id) return;
-    setBusy(true);
-    const readCursor = previous
-      ? contentHistory[contentHistory.length - 2]
-      : cursor || "";
-    try {
-      const r = await api.get<{ text: string; next_cursor: string | null }>(
-        "/contents/" +
-          encodeURIComponent(id) +
-          query({ cursor: readCursor, limit: 262144 }),
-      );
-      setPages([r.text]);
-      setCursor(r.next_cursor);
-      setContentHistory((old) =>
-        previous ? old.slice(0, -1) : [...old, readCursor],
-      );
-      setSlice(0);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <>
-      <ErrorText error={error} />
-      {markdown ? (
-        <Markdown text={view} />
-      ) : (
-        <pre className="payload">
-          <code>{view || "（无内容）"}</code>
-        </pre>
-      )}
-      {text.length > 24000 && (
-        <div className="pagination compact">
-          <button disabled={!slice} onClick={() => setSlice((v) => v - 1)}>
-            <ChevronLeft size={14} />
-            上一段
-          </button>
-          <span>
-            {slice + 1} / {Math.ceil(text.length / 24000)}
-          </span>
-          <button
-            disabled={(slice + 1) * 24000 >= text.length}
-            onClick={() => setSlice((v) => v + 1)}
-          >
-            下一段
-            <ChevronRight size={14} />
-          </button>
-        </div>
-      )}
-      {id && cursor !== null && (
-        <button
-          className="text-button content-more"
-          disabled={busy}
-          onClick={() => void more()}
-        >
-          {busy ? (
-            <Loader2 size={14} className="spin" />
-          ) : (
-            <FileText size={14} />
-          )}{" "}
-          {pages.length ? "继续读取下一部分" : "加载完整内容（分段）"}
-        </button>
-      )}
-      {contentHistory.length > 1 && (
-        <button
-          className="text-button content-more"
-          disabled={busy}
-          onClick={() => void more(true)}
-        >
-          <ChevronLeft size={14} />
-          读取上一部分
-        </button>
-      )}
-    </>
-  );
+  const [text, setText] = useState(initial), [busy, setBusy] = useState(!!id),
+    [error, setError] = useState(""), [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let live = true;
+    setText(initial); setError(""); setBusy(!!id);
+    if (id) void readContent(api, id, () => live).then(value => {
+      if (live && value !== null) setText(value);
+    }).catch(e => { if (live) setError(String(e)); })
+      .finally(() => { if (live) setBusy(false); });
+    return () => { live = false; };
+  }, [id, api, initial, retry]);
+  return <>
+    <ErrorText error={error} />
+    {error && <button className="text-button" onClick={() => setRetry(v => v + 1)}>重试加载完整内容</button>}
+    {busy && <div className="loading-line" role="status"><Loader2 size={14} className="spin" />正在加载完整内容…</div>}
+    {markdown ? <Markdown text={text} /> : <pre className="payload"><code>{text || "（无内容）"}</code></pre>}
+  </>;
 }
 
 function StoredImage({
@@ -381,6 +313,23 @@ function Block({
       );
   }
 }
+function FullEvent({ id, api }: {id: string; api: Client}) {
+  const [event, setEvent] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState(""), [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let live = true; setError("");
+    void readContent(api, id, () => live).then(text => {
+      if (!live || text === null) return;
+      const value = JSON.parse(text);
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("会话消息格式无效");
+      delete value._full_content_id;
+      setEvent(value);
+    }).catch(e => { if (live) setError(String(e)); });
+    return () => { live = false; };
+  }, [id, api, retry]);
+  if (error) return <><ErrorText error={error} /><button className="text-button" onClick={() => setRetry(v => v + 1)}>重试读取消息</button></>;
+  return event ? <EventBody event={event} api={api} /> : <div className="loading-line">正在加载完整消息…</div>;
+}
 function EventBody({
   event,
   api,
@@ -388,35 +337,10 @@ function EventBody({
   event: Record<string, unknown>;
   api: Client;
 }) {
-  const [blockPage, setBlockPage] = useState(0);
+  if (event.content_id && event.content_id === event._full_content_id)
+    return <FullEvent id={String(event.content_id)} api={api} />;
   const blocks = event.blocks as Record<string, unknown>[] | undefined;
-  if (blocks?.length)
-    return (
-      <>
-        {blocks.slice(blockPage * 20, (blockPage + 1) * 20).map((b, i) => (
-          <Block key={blockPage * 20 + i} block={b} api={api} />
-        ))}
-        {blocks.length > 20 && (
-          <div className="pagination compact">
-            <button
-              disabled={!blockPage}
-              onClick={() => setBlockPage((p) => p - 1)}
-            >
-              上一组内容
-            </button>
-            <span>
-              {blockPage + 1}/{Math.ceil(blocks.length / 20)}
-            </span>
-            <button
-              disabled={(blockPage + 1) * 20 >= blocks.length}
-              onClick={() => setBlockPage((p) => p + 1)}
-            >
-              下一组内容
-            </button>
-          </div>
-        )}
-      </>
-    );
+  if (blocks?.length) return <>{blocks.map((block, i) => <Block key={i} block={block} api={api} />)}</>;
   const kind = String(event.kind);
   if (kind === "tool") return <Tool block={event} api={api} />;
   if (kind === "user" || kind === "assistant" || kind === "notice")
@@ -480,68 +404,32 @@ function RoundEvents({
   onFavorite: (event: EventRecord) => void;
 }) {
   const [items, setItems] = useState<EventRecord[]>([]),
-    [next, setNext] = useState<string | null>(null),
-    [history, setHistory] = useState<string[]>(
-      session.favorite_seq !== undefined &&
-        session.favorite_round === round.number
-        ? [String(Math.max(0, session.favorite_seq - 1))]
-        : [""],
-    ),
-    [error, setError] = useState(""),
-    [loading, setLoading] = useState(true);
+    [error, setError] = useState(""), [loading, setLoading] = useState(true),
+    [retry, setRetry] = useState(0);
   useEffect(() => {
     let live = true;
-    setLoading(true);
-    api
-      .get<Page<EventRecord>>(
-        "/sessions/" +
-          session.id +
-          "/events" +
-          query({
-            revision,
-            round: round.number,
-            cursor: history[history.length - 1],
-            limit: 40,
-          }),
-      )
-      .then((r) => {
-        if (live) {
-          setItems(r.items);
-          setNext(r.next_cursor || null);
-          setError("");
-          if (session.favorite_event_id)
-            requestAnimationFrame(() =>
-              document
-                .getElementById("event-" + session.favorite_event_id)
-                ?.scrollIntoView({ block: "start" }),
-            );
-        }
-      })
-      .catch((e) => {
-        if (live) setError(String(e));
-      })
-      .finally(() => {
-        if (live) setLoading(false);
+    setLoading(true); setItems([]); setError("");
+    void (async () => {
+      let cursor: string | null = null;
+      do {
+        const response: Page<EventRecord> = await api.get("/sessions/" + session.id + "/events" + query({revision, round: round.number, cursor, limit: 40}));
+        if (!live) return;
+        setItems(previous => [...previous, ...response.items]);
+        if (response.next_cursor && response.next_cursor === cursor) throw new Error("轮次读取未能前进，请重试");
+        cursor = response.next_cursor || null;
+      } while (cursor !== null && live);
+      if (live && session.favorite_event_id) requestAnimationFrame(() => {
+        if (live) document.getElementById("event-" + session.favorite_event_id)?.scrollIntoView({block: "start"});
       });
-    return () => {
-      live = false;
-    };
-  }, [session.id, revision, round.number, api, history]);
+    })().catch(e => { if (live) setError(String(e)); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [session.id, revision, round.number, api, retry]);
   return (
-    <div className="round-content">
+    <div className="round-content" aria-busy={loading}>
       <ErrorText error={error} />
-      {history[0] !== "" && (
-        <button className="text-button" onClick={() => setHistory([""])}>
-          从本轮开头阅读
-        </button>
-      )}
-      {loading ? (
-        <div className="loading-line">
-          <Loader2 size={16} className="spin" />
-          正在加载本轮内容
-        </div>
-      ) : (
-        items.map((item) => (
+      {error && <button className="text-button" onClick={() => setRetry(v => v + 1)}>重试加载本轮</button>}
+      {items.map((item) => (
           <article
             key={item.id}
             id={"event-" + item.id}
@@ -586,29 +474,9 @@ function RoundEvents({
               <EventBody event={item.event} api={api} />
             </div>
           </article>
-        ))
-      )}
-      {(next || history.length > 1) && (
-        <div className="pagination">
-          <button
-            disabled={loading || history.length <= 1}
-            onClick={() => setHistory((h) => h.slice(0, -1))}
-          >
-            <ChevronLeft size={14} />
-            上一页内容
-          </button>
-          <span>第 {history.length} 页 · 每次最多 40 条</span>
-          <button
-            disabled={loading || !next}
-            onClick={() => {
-              if (next) setHistory((h) => [...h, next]);
-            }}
-          >
-            继续加载本轮内容
-            <ChevronRight size={14} />
-          </button>
-        </div>
-      )}
+        ))}
+      {loading && <div className="loading-line" role="status"><Loader2 size={16} className="spin" />正在加载本轮完整对话，已读取 {items.length} 条…</div>}
+
     </div>
   );
 }

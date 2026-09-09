@@ -38,6 +38,7 @@ export type Session = {
   favorite_seq?: number;
 };
 export type Source = {
+  native_id?: string;
   id: string;
   title: string;
   source_kind: string;

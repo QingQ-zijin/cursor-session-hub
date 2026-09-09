@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   X,
   Search,
@@ -108,6 +108,11 @@ export function SourcePicker({
   signal: number;
 }) {
   const [sources, setSources] = useState<Source[]>([]),
+    [workspace, setWorkspace] = useState('__all__'),
+    [alternates, setAlternates] = useState(false),
+    [workspaces, setWorkspaces] = useState<{project: string; count: number}[]>([]),
+    [workspaceNext, setWorkspaceNext] = useState<string | null>(null),
+    [loading, setLoading] = useState(true),
     [selected, setSelected] = useState<Set<string>>(new Set()),
     [q, setQ] = useState(""),
     [busy, setBusy] = useState(false),
@@ -115,21 +120,32 @@ export function SourcePicker({
     [page, setPage] = useState(0),
     [next, setNext] = useState<string | null>(null),
     [cursors, setCursors] = useState<string[]>([""]);
+  const generation = useRef(0);
+  async function loadWorkspaces(cursor?: string) {
+    const data = await request<Page<{project: string; count: number}>>('/sources/workspaces' + query({cursor, limit: 100, include_alternates: alternates}));
+    setWorkspaces(old => cursor === undefined ? data.items : [...old, ...data.items]);
+    setWorkspaceNext(data.next_cursor || null);
+  }
   async function load() {
+    const ticket = ++generation.current;
+    setLoading(true);
     try {
       const r = await request<Page<Source>>(
-        "/sources" + query({ cursor: cursors[page], q, limit: 50 }),
+        "/sources" + query({ cursor: cursors[page], q, limit: 50, include_alternates: alternates }) + (workspace !== '__all__' ? '&project=' + encodeURIComponent(workspace) : ''),
       );
+      if (ticket !== generation.current) return;
       setSources(asPage(r).items);
       setNext(r.next_cursor || null);
     } catch (e) {
-      onError(e);
-    }
+      if (ticket === generation.current) onError(e);
+    } finally { if (ticket === generation.current) setLoading(false); }
   }
   useEffect(() => {
     const timer = setTimeout(() => void load(), 250);
     return () => clearTimeout(timer);
-  }, [page, q, signal]);
+  }, [page, q, signal, workspace, alternates]);
+  useEffect(() => { void loadWorkspaces().catch(onError); }, [signal, alternates]);
+  useEffect(() => { void scan(); return () => { generation.current++; }; }, []);
   const filtered = sources;
   async function index() {
     setBusy(true);
@@ -199,15 +215,23 @@ export function SourcePicker({
           <RefreshCw size={15} />
         </button>
       </div>
+      <div className="workspace-filter">
+        <label>工作区 <select aria-label="选择 Cursor 工作区" value={workspace} onChange={e => {
+          generation.current++; setSources([]); setLoading(true); setWorkspace(e.target.value); setPage(0); setCursors(['']);
+        }}><option value="__all__">全部工作区</option>{workspaces.map(w => <option key={w.project} value={w.project}>{w.project || '未记录工作区'}（{w.count}）</option>)}</select></label>
+        {workspaceNext !== null && <button className="text-button" onClick={() => void loadWorkspaces(workspaceNext).catch(onError)}>更多工作区</button>}
+        <label className="source-alternates"><input type="checkbox" checked={alternates} onChange={e => { setAlternates(e.target.checked); setPage(0); setCursors(['']); }} />显示同一会话的 JSONL 副本</label>
+      </div>
       <div className="source-list">
-        {!filtered.length ? (
+        {loading ? <div className="loading-line">正在加载工作区会话…</div> : !filtered.length ? (
           <div className="empty-small">
             <FilePlus2 size={25} />
             <p>尚未发现本机记录</p>
-            <span>点击“发现记录”，或直接导入 JSONL 文件。</span>
+            <span>{scanning ? '正在发现 Cursor 记录…' : '可刷新发现结果，或导入会话文件。'}</span>
           </div>
         ) : (
-          filtered.map((s) => (
+          filtered.map((s, i) => (<Fragment key={s.id}>
+            {(i === 0 || filtered[i-1].project !== s.project) && <h3 className="workspace-group" title={s.project}>{s.project?.split(/[\\/]/).filter(Boolean).pop() || '未记录工作区'}<small>{s.project}</small></h3>}
             <label key={s.id} className="source-row">
               <input
                 type="checkbox"
@@ -224,11 +248,12 @@ export function SourcePicker({
               <span>
                 <strong>{s.title || "未命名会话"}</strong>
                 <small title={s.path}>
-                  {s.project || s.path || s.source_kind}
+                  {s.source_kind === 'cursor_ide' ? 'Cursor IDE' : s.source_kind === 'cursor_cli' ? 'Cursor CLI' : '会话文件'}
                 </small>
+                <details><summary>来源信息</summary><small>{s.path}</small><small>ID：{s.native_id}</small></details>
               </span>
               <em>{label(s.status)}</em>
-            </label>
+            </label></Fragment>
           ))
         )}
       </div>

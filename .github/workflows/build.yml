@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - run: pip install -r requirements.txt
-      - run: python -m pytest tests/test_hub_api.py tests/test_hub_remote.py tests/test_hub_ingest.py tests/test_hub_migration.py tests/test_hub_sources.py tests/test_body_limits.py tests/test_hub_updates.py -q
+      - run: python -m pytest tests/test_hub_api.py tests/test_hub_remote.py tests/test_hub_ingest.py tests/test_hub_migration.py tests/test_hub_sources.py tests/test_body_limits.py tests/test_hub_updates.py tests/test_hub_documents.py -q
       - uses: actions/setup-node@v4
         with: {node-version: '22', cache: npm, cache-dependency-path: frontend/package-lock.json}
       - run: npm ci && npm test && npm run build

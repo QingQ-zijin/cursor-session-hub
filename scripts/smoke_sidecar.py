@@ -46,7 +46,31 @@ def main():
    else:raise RuntimeError('Frozen parser timeout')
    session=call('/sessions/'+imported['session_id'])
    assert session['event_count']==2,session
-   (out/f'smoke-core-{a.target}.json').write_text(json.dumps({'ok':True,'events':2,'target':a.target}),encoding='utf-8')
+   def wait_job(ident):
+    for _ in range(120):
+     current=call('/jobs/'+ident)
+     if current['state']=='succeeded':return current
+     if current['state'] in ('failed','cancelled'):raise RuntimeError(current.get('error'))
+     time.sleep(.5)
+    raise RuntimeError('Document job timeout')
+   for fmt,suffix in [('markdown','.md'),('html','.html')]:
+    exported=call('/sessions/'+imported['session_id']+'/exports',{'format':fmt})
+    wait_job(exported['job']['id'])
+    document=home/'exports'/(exported['job']['id']+suffix)
+    value=document.read_text(encoding='utf-8')
+    assert 'print(1)' in value and '已完成' in value
+    if fmt=='html':assert 'renderMathInElement' in value and '<code class="language-python">' in value
+    again=call('/imports/path',{'path':str(document)})
+    wait_job(again['job']['id'])
+    assert call('/sessions/'+again['session_id'])['event_count']==2
+   # The frozen process must carry the PDF library; a blank scan is an explicit diagnostic.
+   from pypdf import PdfWriter
+   pdf=home/'扫描页.pdf';writer=PdfWriter();writer.add_blank_page(width=100,height=100)
+   with pdf.open('wb') as target:writer.write(target)
+   imported_pdf=call('/imports/path',{'path':str(pdf)})
+   pdf_job=wait_job(imported_pdf['job']['id'])
+   assert call('/sessions/'+imported_pdf['session_id'])['status']=='ready_with_diagnostics'
+   (out/f'smoke-core-{a.target}.json').write_text(json.dumps({'ok':True,'events':2,'target':a.target,'document_imports':['markdown','html','pdf'],'offline_math_assets':True}),encoding='utf-8')
    print('Frozen core smoke PASS:',a.target)
   finally:
    try: owned = psutil.Process(process.pid).children(recursive=True) + [psutil.Process(process.pid)]

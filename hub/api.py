@@ -131,7 +131,7 @@ def create_app(config: Config | None = None):
                 await asyncio.to_thread(worker.join,10)
         engine.dispose()
 
-    app = FastAPI(title='Cursor Session Hub', version='0.1.3', lifespan=lifespan)
+    app = FastAPI(title='Cursor Session Hub', version='1.1.0', lifespan=lifespan)
     # Register before the HTTP decorator below so this sits directly around
     # routing. Receive-limit exceptions then reach FastAPI without being
     # wrapped in BaseHTTPMiddleware's request-relay task groups.
@@ -532,16 +532,40 @@ def create_app(config: Config | None = None):
         mime=item['mime'] if item['mime'] in ('image/png','image/jpeg','image/gif','image/webp') else 'application/octet-stream'
         return FileResponse(path,media_type=mime,headers={'Content-Security-Policy':"default-src 'none'; sandbox"})
 
+    def preferred_sources(query, include_alternates):
+        if include_alternates: return query
+        primary=db.sources.alias('primary_source')
+        exists=select(primary.c.id).where(primary.c.owner_id==db.sources.c.owner_id,primary.c.native_id==db.sources.c.native_id,primary.c.source_kind=='cursor_ide').exists()
+        return query.where(or_(db.sources.c.source_kind!='cursor_jsonl',~exists))
+
     @router.get('/sources')
-    def list_sources(user=Depends(require_user),cursor:str|None=None,limit:int=100,q:str|None=None):
+    def list_sources(user=Depends(require_user),cursor:str|None=None,limit:int=100,q:str|None=None,project:str|None=None,include_alternates:bool=False):
         local_only();limit=bounded_limit(limit,100)
-        query=select(db.sources).where(db.sources.c.owner_id==user['id']).order_by(db.sources.c.id).limit(limit+1)
-        if cursor: query=query.where(db.sources.c.id>cursor)
+        project_key=func.coalesce(db.sources.c.project,'')
+        query=select(db.sources).where(db.sources.c.owner_id==user['id']).order_by(project_key,db.sources.c.id).limit(limit+1)
+        query=preferred_sources(query,include_alternates)
+        if project is not None: query=query.where(project_key==project)
+        if cursor:
+            with engine.connect() as conn:
+                previous=conn.execute(select(db.sources).where(db.sources.c.id==cursor,db.sources.c.owner_id==user['id'])).mappings().first()
+            if not previous: raise HTTPException(422,'来源分页已失效，请刷新')
+            key=previous['project'] or ''
+            query=query.where(or_(project_key>key,and_(project_key==key,db.sources.c.id>cursor)))
         if q:
             if len(q)>200: raise HTTPException(422,'搜索词过长')
             term='%'+q.replace('%','\\%').replace('_','\\_')+'%'
             query=query.where(or_(db.sources.c.title.ilike(term,escape='\\'),db.sources.c.project.ilike(term,escape='\\'),db.sources.c.path.ilike(term,escape='\\')))
         with engine.connect() as conn: return page(conn.execute(query).mappings().all(),limit)
+
+    @router.get('/sources/workspaces')
+    def source_workspaces(user=Depends(require_user),cursor:str|None=None,limit:int=100,include_alternates:bool=False):
+        local_only();limit=bounded_limit(limit,100)
+        key=func.coalesce(db.sources.c.project,'')
+        query=select(key.label('project'),func.count().label('count')).where(db.sources.c.owner_id==user['id']).group_by(key).order_by(key).limit(limit+1)
+        query=preferred_sources(query,include_alternates)
+        if cursor is not None: query=query.where(key>cursor)
+        with engine.connect() as conn: rows=[dict(row) for row in conn.execute(query).mappings()]
+        return {'items':rows[:limit],'next_cursor':rows[limit-1]['project'] if len(rows)>limit else None}
 
     @router.post('/sources/scan')
     def scan_sources(user=Depends(require_user)):
@@ -567,11 +591,13 @@ def create_app(config: Config | None = None):
             return {'job':job_public(job),'session_id':sid}
 
     def queue_import(path,filename,user,digest,native_path=None):
+        from .documents import SUFFIXES
+        source_kind=SUFFIXES[Path(filename).suffix.lower()]
         with admission_lock,engine.begin() as conn:
             title=Path(filename).stem[:1000]
             source=None;existing=None
             if native_path:
-                source=conn.execute(select(db.sources).where(db.sources.c.path==str(native_path),db.sources.c.source_kind=='cursor_jsonl',db.sources.c.owner_id==user['id'])).mappings().first()
+                source=conn.execute(select(db.sources).where(db.sources.c.path==str(native_path),db.sources.c.source_kind==source_kind,db.sources.c.owner_id==user['id'])).mappings().first()
                 if source and source['session_id']:
                     existing=conn.execute(select(db.sessions).where(db.sessions.c.id==source['session_id'],db.sessions.c.revoked.is_(False))).mappings().first()
             if not existing:
@@ -582,7 +608,7 @@ def create_app(config: Config | None = None):
                 info=native_path.stat()
                 if not source:
                     source_id=db.new_id()
-                    conn.execute(db.sources.insert().values(id=source_id,owner_id=user['id'],path=str(native_path),native_id=native_path.stem,source_kind='cursor_jsonl',title=title,project=str(native_path.parent),session_id=sid,size=info.st_size,mtime=info.st_mtime))
+                    conn.execute(db.sources.insert().values(id=source_id,owner_id=user['id'],path=str(native_path),native_id=native_path.stem,source_kind=source_kind,title=title,project=str(native_path.parent),session_id=sid,size=info.st_size,mtime=info.st_mtime))
                 else:
                     conn.execute(update(db.sources).where(db.sources.c.id==source_id).values(session_id=sid,size=info.st_size,mtime=info.st_mtime,updated_at=db.now()))
             if existing:
@@ -601,8 +627,8 @@ def create_app(config: Config | None = None):
                 if source_id and not existing['source_id']: changes['source_id']=source_id
                 conn.execute(update(db.sessions).where(db.sessions.c.id==sid).values(**changes))
             else:
-                conn.execute(db.sessions.insert().values(id=sid,owner_id=user['id'],title=title,original_title=title,status='queued',source_kind='cursor_jsonl',native_id=title,source_id=source_id,metadata_json={'import_sha256':digest}))
-            payload={'path':str(path),'source_kind':'cursor_jsonl','source_sha256':digest}
+                conn.execute(db.sessions.insert().values(id=sid,owner_id=user['id'],title=title,original_title=title,status='queued',source_kind=source_kind,native_id=title,source_id=source_id,metadata_json={'import_sha256':digest}))
+            payload={'path':str(path),'source_kind':source_kind,'source_sha256':digest}
             if source_id: payload['source_id']=source_id
             job=enqueue(conn,config,user['id'],'ingest',sid,payload)
             return {'job':job_public(job),'session_id':sid}
@@ -610,8 +636,10 @@ def create_app(config: Config | None = None):
     @router.post('/imports')
     async def import_file(file:UploadFile=File(...),user=Depends(require_user)):
         local_only();check_disk(config)
-        if not (file.filename or '').lower().endswith(('.jsonl','.json')): raise HTTPException(422,'请选择 JSONL 文件')
-        path=config.home/'imports'/(db.new_id()+'.jsonl')
+        from .documents import SUFFIXES
+        suffix=Path(file.filename or '').suffix.lower()
+        if suffix not in SUFFIXES: raise HTTPException(422,'支持 JSONL、Markdown、HTML 和 PDF 文件')
+        path=config.home/'imports'/(db.new_id()+suffix)
         total=0;hasher=hashlib.sha256()
         try:
             with path.open('wb') as handle:
@@ -631,9 +659,10 @@ def create_app(config: Config | None = None):
     def import_path(body:PathImport,user=Depends(require_user)):
         local_only();check_disk(config)
         source=Path(body.path).expanduser().resolve()
-        if not source.is_file() or source.suffix.lower() not in ('.jsonl','.json'): raise HTTPException(422,'请选择可读取的 JSONL 文件')
+        from .documents import SUFFIXES
+        if not source.is_file() or source.suffix.lower() not in SUFFIXES: raise HTTPException(422,'请选择可读取的 JSONL、Markdown、HTML 或 PDF 文件')
         if source.stat().st_size>config.max_package_bytes: raise HTTPException(413,'文件超过 512 MiB')
-        path=config.home/'imports'/(db.new_id()+'.jsonl')
+        path=config.home/'imports'/(db.new_id()+source.suffix.lower())
         try:
             with source.open('rb') as inp,path.open('wb') as out:
                 copied=0;hasher=hashlib.sha256()
