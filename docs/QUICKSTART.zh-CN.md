@@ -1,16 +1,16 @@
-# Cursor Session Hub v1.1（1.1.0）
+# Cursor Session Hub 1.1.1
 
 无需安装 Python、Node.js 或 Rust。先使用离线本地库；准备好服务器后，再登录团队空间，手动同步选定记录。
 
-下载：[Release v1.1.0](https://github.com/QingQ-zijin/cursor-session-hub/releases/tag/v1.1.0)。
+下载：[Release v1.1.1](https://github.com/QingQ-zijin/cursor-session-hub/releases/tag/v1.1.1)。
 
 ## 选择安装包
 
 | 电脑 | 文件 |
 |---|---|
-| Windows 64位 | Cursor.Session.Hub_1.1.0_x64-setup.exe |
-| Mac M系列芯片 | Cursor.Session.Hub_1.1.0_aarch64.dmg |
-| Mac Intel芯片 | Cursor.Session.Hub_1.1.0_x64.dmg |
+| Windows 64位 | Cursor.Session.Hub_1.1.1_x64-setup.exe |
+| Mac M系列芯片 | Cursor.Session.Hub_1.1.1_aarch64.dmg |
+| Mac Intel芯片 | Cursor.Session.Hub_1.1.1_x64.dmg |
 
 Windows 双击安装程序。Mac 打开对应 DMG，将应用拖入 Applications，再从 Applications 启动。Mac 安装目标为 macOS 13 或更新版本；本次实际构建与启动检查分别运行于 macOS 14 Apple Silicon 和 macOS 15 Intel。
 
@@ -50,3 +50,7 @@ Windows 数据在 `%LOCALAPPDATA%\CursorSessionHub`；Mac 数据在 `~/Library/A
 ## 文档导入
 
 PDF 按页提取文字，不将 PDF 原文冒充为 Cursor 对话。扫描页没有文字层时会显示诊断，需要先 OCR；加密 PDF 请先解密。PDF 上限 64 MiB，单个文本块上限 8 MiB，后台解析超限或出错时原始文件保留。HTML/Markdown 保留可识别的问答角色，普通文档作为原文记录导入。
+
+## 导出文件
+
+会话右上角“会话操作”可选择导出 Markdown、HTML 或 PDF。后台完成后，在“同步任务”中点击相应的下载按钮。1.1.1 修正了 Markdown 被默认保存为 .html 的问题，已有导出任务也会返回正确扩展名。PDF 内置中文字体，支持分页、代码、表格和关联图片；数学公式保留 LaTeX 原文，需要公式排版时使用 HTML。
