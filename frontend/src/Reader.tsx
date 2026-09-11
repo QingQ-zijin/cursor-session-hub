@@ -1,5 +1,5 @@
 import {Markdown} from "./RichText";
-import {AIChat} from "./AIChat";
+import {Modal} from "./Management";
 import { readContent } from "./content";
 import { Children, isValidElement, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -12,6 +12,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsUp,
+  Trash2,
+  RotateCcw,
+  PanelRight,
   MessageSquare,
   Bookmark,
   Download,
@@ -321,7 +324,11 @@ function EventBody({
   if (event.content_id && event.content_id === event._full_content_id)
     return <FullEvent id={String(event.content_id)} api={api} />;
   const blocks = event.blocks as Record<string, unknown>[] | undefined;
-  if (blocks?.length) return <>{blocks.map((block, i) => <Block key={i} block={block} api={api} />)}</>;
+  if (blocks?.length) {
+    const groups: {process:boolean;blocks:Record<string,unknown>[]}[]=[];
+    for(const block of blocks){const process=['tool_use','thinking'].includes(String(block.type));const previous=groups.at(-1);if(process&&previous?.process)previous.blocks.push(block);else groups.push({process,blocks:[block]})}
+    return <>{groups.map((group,i)=>group.process?<Collapsed key={i} label={'执行过程 · '+group.blocks.length+' 条记录'}>{group.blocks.map((block,j)=><Block key={j} block={block} api={api}/>)}</Collapsed>:<Block key={i} block={group.blocks[0]} api={api}/>)}</>;
+  }
   const kind = String(event.kind);
   if (kind === "tool") return <Tool block={event} api={api} />;
   if (kind === "user" || kind === "assistant" || kind === "notice")
@@ -406,11 +413,18 @@ function RoundEvents({
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [session.id, revision, round.number, api, retry]);
+  const groups: {process:boolean;items:EventRecord[]}[]=[];
+  for(const item of items){const blocks=item.event.blocks as Record<string,unknown>[]|undefined;const process=['tool','reasoning','web_call','web_search','status'].includes(String(item.event.kind))||(item.event.kind==='assistant'&&!!blocks?.length&&blocks.every(b=>['tool_use','thinking'].includes(String(b.type))));const previous=groups.at(-1);if(process&&previous?.process)previous.items.push(item);else groups.push({process,items:[item]})}
+  function processLabel(records:EventRecord[]){
+    const times=records.map(r=>{const ts=r.event.ts;return typeof ts==='number'?(ts<1e11?ts*1000:ts):typeof ts==='string'?Date.parse(ts):NaN}).filter(Number.isFinite);
+    const seconds=times.length>1?Math.floor((Math.max(...times)-Math.min(...times))/1000):0;
+    return seconds>0&&seconds<86400?`Worked for ${Math.floor(seconds/60)}m ${seconds%60}s · ${records.length} 条记录`:`执行过程 · ${records.length} 条记录`;
+  }
   return (
     <div className="round-content" aria-busy={loading}>
       <ErrorText error={error} />
       {error && <button className="text-button" onClick={() => setRetry(v => v + 1)}>重试加载本轮</button>}
-      {items.map((item) => (
+      {groups.map((group) => group.process ? <div className="execution-summary" key={group.items[0].id} title="耗时按原记录时间跨度显示"><Collapsed label={processLabel(group.items)}>{group.items.map(item=><div key={item.id} id={'event-'+item.id}><EventBody event={item.event} api={api}/></div>)}</Collapsed></div> : group.items.map((item) => (
           <article
             key={item.id}
             id={"event-" + item.id}
@@ -455,7 +469,7 @@ function RoundEvents({
               <EventBody event={item.event} api={api} />
             </div>
           </article>
-        ))}
+        )))}
       {loading && <div className="loading-line" role="status"><Loader2 size={16} className="spin" />正在加载本轮完整对话，已读取 {items.length} 条…</div>}
 
     </div>
@@ -649,7 +663,15 @@ export function Reader({
     ),
     [rounds, setRounds] = useState<Round[]>([]),
     [expanded, setExpanded] = useState<number[]>([]),
-    [directory, setDirectory] = useState(false),
+    [directory, setDirectory] = useState(window.innerWidth > 1000),
+    [trash,setTrash] = useState(false),
+    [editRound,setEditRound] = useState<Round|null>(null),
+    [editNote,setEditNote] = useState(""),
+    [editBusy,setEditBusy] = useState(false),
+    [editError,setEditError] = useState(""),
+    [edits,setEdits] = useState(0),
+    [dirBusy,setDirBusy] = useState(false),
+    [dirError,setDirError] = useState(""),
     [directoryItems, setDirectoryItems] = useState<Round[]>([]),
     [dirHistory, setDirHistory] = useState([""]),
     [dirNext, setDirNext] = useState<string | null>(null),
@@ -697,7 +719,8 @@ export function Reader({
               "/rounds" +
               query({ revision, cursor: session.favorite_round - 1, limit: 1 }),
           );
-          r.items = [...r.items.slice(-2), ...target.items].sort(
+          if(live&&!target.items.some(item=>item.number===session.favorite_round))setError('收藏的轮次已移到回收站，可从右侧恢复。');
+          r.items = [...r.items.slice(-2), ...target.items.filter(item=>item.number===session.favorite_round)].sort(
             (a, b) => a.number - b.number,
           );
         }
@@ -715,10 +738,10 @@ export function Reader({
     return () => {
       live = false;
     };
-  }, [session.id, revision, api]);
+  }, [session.id, revision, api, edits]);
   useEffect(() => {
     if (!directory) return;
-    let live = true;
+    let live = true;setDirBusy(true);setDirError("");setDirectoryItems([]);
     api
       .get<Page<Round>>(
         "/sessions/" +
@@ -727,7 +750,7 @@ export function Reader({
           query({
             revision,
             cursor: dirHistory[dirHistory.length - 1],
-            limit: 100,
+            limit: 100, trash,
           }),
       )
       .then((r) => {
@@ -736,11 +759,11 @@ export function Reader({
           setDirNext(r.next_cursor || null);
         }
       })
-      .catch(onError);
+      .catch(e=>{if(live)setDirError(String(e))}).finally(()=>{if(live)setDirBusy(false)});
     return () => {
       live = false;
     };
-  }, [directory, dirHistory, revision, session.id, api]);
+  }, [directory, dirHistory, revision, session.id, api, trash, edits]);
   function openRound(round: Round) {
     setRounds((old) => {
       const next = [...old.filter((r) => r.number !== round.number), round];
@@ -749,7 +772,12 @@ export function Reader({
         .sort((a, b) => a.number - b.number);
     });
     setExpanded((prev) => boundedExpanded(prev, round.number));
-    setDirectory(false);
+    requestAnimationFrame(()=>document.getElementById("round-"+round.number)?.scrollIntoView({block:"start"}));
+  }
+  async function saveRound(deleted:boolean){
+    if(!editRound||editBusy)return;setEditBusy(true);setEditError('');
+    try{await api.patch('/sessions/'+session.id+'/rounds/'+editRound.number,{revision_id:revision,deleted,note:editNote});setEditRound(null);setEdits(v=>v+1);onChange();onNotice(deleted?'已移到回收站，可在右侧恢复':'轮次已恢复')}
+    catch(e){setEditError(e instanceof Error?e.message:String(e))}finally{setEditBusy(false)}
   }
   async function bookmark(event?: EventRecord) {
     try {
@@ -783,6 +811,7 @@ export function Reader({
       setRevision(r.current_revision || "");
       setTitle(r.title);
       setNewVersion(false);
+      setEdits(v=>v+1);
       onChange();
     } catch (e) {
       onError(e);
@@ -800,6 +829,7 @@ export function Reader({
           <span>{session.owner_name || "我的记录"}</span>
         </div>
         <div className="reader-actions">
+          <button className="icon-button" aria-label="更早的会话" title="轮次目录与回收站" aria-expanded={directory} onClick={()=>{setDirectory(v=>!v);setComments(null)}}><PanelRight size={17}/></button>
           <button
             className={"icon-button " + (saved ? "active" : "")}
             aria-label="收藏会话"
@@ -963,51 +993,6 @@ export function Reader({
             </div>
           ) : (
             <>
-              <button
-                className="older-toggle"
-                onClick={() => setDirectory((v) => !v)}
-                aria-expanded={directory}
-              >
-                <ChevronsUp size={15} />
-                {directory ? "收起历史目录" : "查看更早的对话"}
-                <span>按轮次加载</span>
-                <ChevronDown size={15} />
-              </button>
-              {directory && (
-                <div className="round-directory">
-                  <div className="directory-heading">
-                    <strong>对话目录</strong>
-                    <span>点击标题读取内容</span>
-                  </div>
-                  {directoryItems.map((r) => (
-                    <button key={r.number} onClick={() => openRound(r)}>
-                      <span>{String(r.number).padStart(2, "0")}</span>
-                      <span>
-                        {roundPreview(r.preview) || "对话 " + r.number}
-                      </span>
-                      <small>{r.count} 条</small>
-                      <ChevronRight size={14} />
-                    </button>
-                  ))}
-                  <div className="pagination compact">
-                    <button
-                      disabled={dirHistory.length <= 1}
-                      onClick={() => setDirHistory((h) => h.slice(0, -1))}
-                    >
-                      上一页
-                    </button>
-                    <span>第 {dirHistory.length} 页</span>
-                    <button
-                      disabled={!dirNext}
-                      onClick={() => {
-                        if (dirNext) setDirHistory((h) => [...h, dirNext]);
-                      }}
-                    >
-                      下一页
-                    </button>
-                  </div>
-                </div>
-              )}
               {busy ? (
                 <div className="loading-line">
                   <Loader2 className="spin" size={18} />
@@ -1015,7 +1000,8 @@ export function Reader({
                 </div>
               ) : (
                 rounds.map((r) => (
-                  <section key={r.number} className="round">
+                  <section key={r.number} id={"round-"+r.number} className="round">
+                    <div className="round-head-row">
                     <button
                       className="round-heading"
                       onClick={() =>
@@ -1035,6 +1021,8 @@ export function Reader({
                         size={16}
                       />
                     </button>
+                    {(user.role==="admin"||user.id===session.owner_id)&&<button className="icon-button round-delete" aria-label={"删除第 "+r.number+" 轮"} title="移到回收站" onClick={()=>{setEditRound(r);setEditNote(r.note||"");setEditError("")}}><Trash2 size={14}/></button>}
+                    </div>
                     {expanded.includes(r.number) && (
                       <RoundEvents
                         session={session}
@@ -1054,6 +1042,18 @@ export function Reader({
             仅展开最近或选中的 3 轮 · 工具与大段内容按需读取
           </div>
         </div>
+        {directory && !comments && <aside className="round-rail" aria-label="轮次目录">
+          <div className="rail-tabs"><button className={!trash?'active':''} onClick={()=>{setTrash(false);setDirHistory([''])}}>更早的会话</button><button className={trash?'active':''} onClick={()=>{setTrash(true);setDirHistory([''])}}><Trash2 size={13}/>回收站</button><button className="rail-close" aria-label="关闭轮次目录" onClick={()=>setDirectory(false)}><X size={14}/></button></div>
+          <div className="rail-list" aria-busy={dirBusy}>
+            {dirBusy?<p role="status">正在加载目录…</p>:<><ErrorText error={dirError}/>{dirError&&<button onClick={()=>setEdits(v=>v+1)}>重试目录</button>}{!directoryItems.length&&!dirError&&<p className="muted">{trash?'回收站为空':'暂无轮次'}</p>}
+            {directoryItems.map(r=><div key={r.number} className={'rail-round '+(expanded.includes(r.number)&&!trash?'active':'')}>
+              <button disabled={trash} onClick={()=>openRound(r)}><small>{String(r.number).padStart(2,'0')}</small><span>{roundPreview(r.preview)||'对话 '+r.number}</span></button>
+              {trash&&<p className="trash-note">{r.note||'未填写删除说明'}</p>}
+              {(user.role==='admin'||user.id===session.owner_id)&&<button className="rail-action" aria-label={(trash?'恢复或备注第 ':'删除第 ')+r.number+' 轮'} onClick={()=>{setEditRound(r);setEditNote(r.note||'');setEditError('')}}>{trash?<RotateCcw size={13}/>:<Trash2 size={13}/>}</button>}
+            </div>)}</>}
+          </div>
+          <div className="pagination compact"><button aria-label="目录上一页" disabled={dirHistory.length<=1||dirBusy} onClick={()=>setDirHistory(h=>h.slice(0,-1))}><ChevronLeft size={14}/></button><span>{dirHistory.length}</span><button aria-label="目录下一页" disabled={!dirNext||dirBusy} onClick={()=>{if(dirNext)setDirHistory(h=>[...h,dirNext])}}><ChevronRight size={14}/></button></div>
+        </aside>}
         {comments && (
           <Comments
             session={session}
@@ -1066,7 +1066,13 @@ export function Reader({
           />
         )}
       </div>
-      <AIChat api={api} user={user} initialSessions={[session]} compact/>
+      {editRound&&<Modal title={editRound.deleted?'回收站 · 第 '+editRound.number+' 轮':'删除第 '+editRound.number+' 轮'} onClose={()=>{if(!editBusy)setEditRound(null)}}>
+        <form className="round-edit" onSubmit={e=>{e.preventDefault();void saveRound(true)}}>
+          <p>{editRound.deleted?'可更新删除说明，或恢复这一轮。':'移到回收站后可恢复。原始 Cursor 文件不会改变。'}</p>
+          <label>删除说明（可选）<textarea aria-label="删除说明" value={editNote} maxLength={1000} onChange={e=>setEditNote(e.target.value)}/></label><ErrorText error={editError}/>
+          <footer><button type="button" className="button" disabled={editBusy} onClick={()=>setEditRound(null)}>取消</button>{editRound.deleted&&<button type="button" className="button" disabled={editBusy} onClick={()=>void saveRound(false)}><RotateCcw size={14}/>恢复轮次</button>}<button className="button primary" disabled={editBusy}>{editRound.deleted?'保存备注':'移到回收站'}</button></footer>
+        </form>
+      </Modal>}
     </section>
   );
 }

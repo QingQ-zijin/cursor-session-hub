@@ -58,6 +58,11 @@ class Export(BaseModel):
     format: str = 'html'
     revision_id: str | None = None
 
+class RoundEdit(BaseModel):
+    revision_id: str
+    deleted: bool
+    note: str = Field(default='', max_length=1000)
+
 class PathImport(BaseModel):
     path: str = Field(min_length=1, max_length=32768)
 
@@ -121,25 +126,21 @@ def create_app(config: Config | None = None):
     admission_lock = threading.RLock()
     engine._csh_admission_lock = admission_lock
     login_attempts = {}
-    from .ai import Manager, create_router as create_ai_router
-    ai_manager = Manager(config, engine)
 
     @asynccontextmanager
     async def lifespan(app):
-        ai_manager.recover()
         worker = None
         if not config.worker_external:
             from .worker import start_worker
             worker = start_worker(config)
         yield
-        ai_manager.close()
         if worker and hasattr(worker, 'stop'):
             worker.stop()
             if hasattr(worker, 'join'):
                 await asyncio.to_thread(worker.join,10)
         engine.dispose()
 
-    app = FastAPI(title='Cursor Session Hub', version='1.5.1', lifespan=lifespan)
+    app = FastAPI(title='Cursor Session Hub', version='1.5.2', lifespan=lifespan)
     # Register before the HTTP decorator below so this sits directly around
     # routing. Receive-limit exceptions then reach FastAPI without being
     # wrapped in BaseHTTPMiddleware's request-relay task groups.
@@ -147,7 +148,6 @@ def create_app(config: Config | None = None):
     app.add_middleware(StreamBodyLimitMiddleware,config=config)
     app.state.config = config
     app.state.engine = engine
-    app.state.ai_manager = ai_manager
     @app.exception_handler(RequestValidationError)
     async def validation_error(request,exc):
         details=[]
@@ -475,23 +475,43 @@ def create_app(config: Config | None = None):
             return page(conn.execute(query).mappings().all(),limit)
 
     @router.get('/sessions/{ident}/rounds')
-    def list_rounds(ident:str,user=Depends(require_user),revision:str|None=None,cursor:int|None=None,limit:int=100,recent:int|None=None):
+    def list_rounds(ident:str,user=Depends(require_user),revision:str|None=None,cursor:int|None=None,limit:int=100,recent:int|None=None,trash:bool=False):
         limit=bounded_limit(limit,100)
         with engine.connect() as conn:
             rev=revision_row(conn,ident,revision,user)
-            query=select(db.rounds).where(db.rounds.c.revision_id==rev['id'])
+            query=select(db.rounds,db.round_trash.c.note,db.round_trash.c.deleted,db.round_trash.c.actor_id,db.round_trash.c.updated_at.label('deleted_at')).outerjoin(db.round_trash,and_(db.round_trash.c.revision_id==db.rounds.c.revision_id,db.round_trash.c.number==db.rounds.c.number)).where(db.rounds.c.revision_id==rev['id'])
+            query=query.where(db.round_trash.c.deleted.is_(True) if trash else db.round_trash.c.deleted.is_not(True))
             if cursor is not None: query=query.where(db.rounds.c.number>cursor)
             query=query.order_by(db.rounds.c.number.desc() if recent else db.rounds.c.number).limit(min(recent,3) if recent else limit+1)
             rows=[dict(x) for x in conn.execute(query).mappings()]
             if recent: rows.reverse()
             return {'items':rows[:limit],'next_cursor':str(rows[limit-1]['number']) if len(rows)>limit else None}
 
+    @router.patch('/sessions/{ident}/rounds/{number}')
+    def edit_round(ident:str,number:int,body:RoundEdit,user=Depends(require_user)):
+        with admission_lock,engine.begin() as conn:
+            session_row(conn,ident,user,writable=True)
+            rev=revision_row(conn,ident,body.revision_id,user)
+            conn.execute(select(db.sessions.c.id).where(db.sessions.c.id==ident).with_for_update()).first()
+            if conn.execute(select(db.jobs.c.id).where(db.jobs.c.session_id==ident,db.jobs.c.kind.in_(('sync','export')),db.jobs.c.state.in_(('queued','running','paused')))).first():
+                raise HTTPException(409,'此会话正在同步或导出，完成或取消任务后再修改轮次')
+            item=conn.execute(select(db.rounds).where(db.rounds.c.revision_id==rev['id'],db.rounds.c.number==number)).mappings().first()
+            if not item: raise HTTPException(404,'轮次不存在')
+            where=and_(db.round_trash.c.revision_id==rev['id'],db.round_trash.c.number==number)
+            previous=conn.execute(select(db.round_trash).where(where)).first()
+            values={'deleted':body.deleted,'note':body.note.strip(),'actor_id':user['id'],'updated_at':db.now()}
+            if previous: conn.execute(db.round_trash.update().where(where).values(**values))
+            else: conn.execute(db.round_trash.insert().values(revision_id=rev['id'],number=number,**values))
+            if config.mode=='local': conn.execute(db.sessions.update().where(db.sessions.c.id==ident).values(sync_status='update_pending',updated_at=db.now()))
+            db.emit(conn,'session',user['id'],ident,round_number=number,deleted=body.deleted)
+            return {'ok':True,**values}
+
     @router.get('/sessions/{ident}/events')
     def list_events(ident:str,user=Depends(require_user),revision:str|None=None,round:int|None=None,cursor:int|None=None,limit:int=40):
         limit=bounded_limit(limit,40)
         with engine.connect() as conn:
             rev=revision_row(conn,ident,revision,user)
-            query=select(db.events).where(db.events.c.revision_id==rev['id']).order_by(db.events.c.seq).limit(limit+1)
+            query=select(db.events).where(db.events.c.revision_id==rev['id'],db.visible_round(db.events.c.revision_id,db.events.c.round_number)).order_by(db.events.c.seq).limit(limit+1)
             if round is not None: query=query.where(db.events.c.round_number==round)
             if cursor is not None: query=query.where(db.events.c.seq>cursor)
             rows=conn.execute(query).mappings().all()
@@ -983,7 +1003,6 @@ def create_app(config: Config | None = None):
     if config.mode=='local':
         from .remote import create_router
         router.include_router(create_router(config,engine,require_user))
-    router.include_router(create_ai_router(config,engine,require_user,ai_manager))
     app.include_router(router)
 
     @app.get('/health')

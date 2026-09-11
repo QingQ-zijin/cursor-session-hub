@@ -31,8 +31,8 @@ def main():
     if process.poll() is not None:raise RuntimeError('Frozen core exited: '+(home/'stderr.log').read_text(encoding='utf-8'))
    if not port:raise RuntimeError('Frozen core readiness timeout')
    base=f'http://127.0.0.1:{port}/api/v1'
-   def call(path,body=None):
-    request=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'},data=json.dumps(body).encode() if body is not None else None)
+   def call(path,body=None,method=None):
+    request=urllib.request.Request(base+path,method=method,headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'},data=json.dumps(body).encode() if body is not None else None)
     with urllib.request.urlopen(request,timeout=15) as response:return json.load(response)
    for _ in range(50):
     try:call('/capabilities');break
@@ -46,6 +46,13 @@ def main():
    else:raise RuntimeError('Frozen parser timeout')
    session=call('/sessions/'+imported['session_id'])
    assert session['event_count']==2,session
+   original=sample.read_bytes();rounds=call('/sessions/'+session['id']+'/rounds')['items'];number=rounds[0]['number']
+   endpoint='/sessions/'+session['id']+'/rounds/'+str(number)
+   call(endpoint,{'revision_id':session['current_revision'],'deleted':True,'note':'smoke check'},'PATCH')
+   assert not call('/sessions/'+session['id']+'/events')['items']
+   assert call('/sessions/'+session['id']+'/rounds?trash=true')['items'][0]['note']=='smoke check'
+   call(endpoint,{'revision_id':session['current_revision'],'deleted':False},'PATCH')
+   assert len(call('/sessions/'+session['id']+'/events')['items'])==2 and sample.read_bytes()==original
    def wait_job(ident):
     for _ in range(120):
      current=call('/jobs/'+ident)

@@ -36,6 +36,10 @@ leases = Table('leases', metadata, Column('name', String(100), primary_key=True)
 ai_settings = Table('ai_settings', metadata, Column('id', Integer, primary_key=True), Column('config_json', JSON, nullable=False, default=dict), Column('key_cipher', Text), timestamp('updated_at'))
 ai_threads = Table('ai_threads', metadata, ident(), Column('owner_id', String(100), nullable=False, index=True), Column('title', Text, nullable=False), timestamp(), timestamp('updated_at'))
 ai_messages = Table('ai_messages', metadata, ident(), Column('thread_id', String(100), nullable=False, index=True), Column('owner_id', String(100), nullable=False), Column('seq', Integer, nullable=False), Column('role', String(20), nullable=False), Column('text', Text, nullable=False, default=''), Column('state', String(20), nullable=False), Column('error', Text), Column('request_id', String(100)), Column('metadata_json', JSON, default=dict), timestamp(), timestamp('updated_at'), UniqueConstraint('thread_id','seq'), UniqueConstraint('thread_id','request_id'))
+round_trash = Table('round_trash', metadata, Column('revision_id', String(100), primary_key=True), Column('number', Integer, primary_key=True), Column('deleted', Boolean, nullable=False, default=True), Column('note', Text, nullable=False, default=''), Column('actor_id', String(100), nullable=False), timestamp('updated_at'))
+
+def visible_round(revision_column, number_column):
+    return ~select(round_trash.c.number).where(round_trash.c.revision_id == revision_column, round_trash.c.number == number_column, round_trash.c.deleted.is_(True)).exists()
 
 def get_engine(config):
     config.prepare()
@@ -58,6 +62,9 @@ def init_db(engine):
             conn.execute(schema_versions.insert().values(version=1))
         if not conn.execute(select(schema_versions.c.version).where(schema_versions.c.version == 2)).first():
             conn.execute(schema_versions.insert().values(version=2))
+        if not conn.execute(select(schema_versions.c.version).where(schema_versions.c.version == 3)).first():
+            conn.execute(ai_messages.update().where(ai_messages.c.state.in_(('queued','running'))).values(state='cancelled', error='API 聊天功能已移除'))
+            conn.execute(schema_versions.insert().values(version=3))
         if not conn.execute(select(users.c.id).where(users.c.id == 'local')).first():
             conn.execute(users.insert().values(id='local', username='__local__', display_name='我', role='admin', active=True))
 

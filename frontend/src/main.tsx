@@ -4,7 +4,7 @@ import App from "./App";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 import "./workbench.css";
-import "./ai.css";
+import "./reader-details.css";
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

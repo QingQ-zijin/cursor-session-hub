@@ -1,3 +1,5 @@
+> 历史说明：仅适用于 1.5.1。API 聊天已在 1.5.2 移除，以下设置不再提供。
+
 # API 聊天
 
 管理员在聊天框右上角齿轮或团队成员管理中的「团队 API 设置」填写 Base URL、API Key 和模型名称，再启用 API。支持 OpenAI 兼容的 `/chat/completions` 接口；Base URL 通常包含 `/v1`，不要重复填写 `/chat/completions`。不内置付费模型或密钥，服务商费用由其账号承担。

@@ -1,4 +1,4 @@
-# Cursor Session Hub v1.5（1.5.0）
+# Cursor Session Hub v1.5.2
 
 无需安装 Python、Node.js 或 Rust。先使用离线本地库；准备好服务器后，再登录团队空间，手动同步选定记录。
 
@@ -57,6 +57,6 @@ PDF 按页提取文字，不将 PDF 原文冒充为 Cursor 对话。扫描页没
 
 ## v1.5 工作台
 
-侧栏 Repositories 按工作区展示会话，点击文件夹可折叠。点击会话进入预览，顶部标签可切换已打开的记录。右上角侧栏图标可将工作区移至另一侧。Customize 可调整深浅色和停靠位置。Ctrl/Cmd K 搜索，Ctrl/Cmd B 收起侧栏。New Chat 返回首页，可输入问题或使用 `@` 引用会话。This PC / Team 切换本地和团队数据，Sync tasks 查看同步、解析和导出任务。
+侧栏按工作区列出会话；中央阅读，右侧查看更早轮次和回收站。轮次可删除、备注和恢复。顶部同步当前会话或勾选的多条记录，下载图标进入任务与导出下载。File 导入，View 调整主题和缩放。Ctrl/Cmd 加减号缩放，Ctrl/Cmd 0 恢复，Ctrl/Cmd B 收起侧栏。
 
-管理员在聊天框齿轮或成员管理中的「团队 API 设置」配置 Base URL、API Key 和模型，再启用聊天。本地与团队 API 配置独立。当前会话默认作为引用；长历史按预算选取片段，原始记录不会被改写。详见 [API 聊天](AI_CHAT.md)。
+详见 [轮次管理与回收站](ROUND_MANAGEMENT.md)。API 聊天已在 1.5.2 移除。

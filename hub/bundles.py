@@ -55,12 +55,14 @@ def build_bundle(config, session_id, revision_id, output_path, excluded_asset_id
                 raise ValueError('Only published revisions can be synchronized')
             seq = 0
             total = 0
+            event_count = 0
             with temp_events.open('wb') as stream:
                 while True:
-                    rows = conn.execute(select(db.events.c.seq, db.events.c.event_json).where(db.events.c.revision_id == revision_id, db.events.c.seq > seq).order_by(db.events.c.seq).limit(40)).all()
+                    rows = conn.execute(select(db.events.c.seq, db.events.c.event_json).where(db.events.c.revision_id == revision_id, db.events.c.seq > seq, db.visible_round(db.events.c.revision_id, db.events.c.round_number)).order_by(db.events.c.seq).limit(40)).all()
                     if not rows:
                         break
                     for number, value in rows:
+                        event_count += 1
                         event = _portable(hydrate_event(conn, value), excluded)
                         asset_ids.update(_refs(event, 'asset_id'))
                         raw_ids.update(_refs(event, 'raw_content_id'))
@@ -70,7 +72,7 @@ def build_bundle(config, session_id, revision_id, output_path, excluded_asset_id
                         if total > config.max_package_bytes:
                             raise ValueError('Sync package exceeds 512 MiB uncompressed limit')
                     seq = rows[-1][0]
-            manifest = {'format': 'csh-bundle-v1', 'source_kind': session['source_kind'], 'native_id': session['native_id'] or session_id, 'title': session['title'], 'project': session['project'], 'device_id': 'local', 'source_hash': revision['source_hash'], 'events_file': 'events.jsonl', 'event_count': revision['event_count'], 'assets': [], 'contents': []}
+            manifest = {'format': 'csh-bundle-v1', 'source_kind': session['source_kind'], 'native_id': session['native_id'] or session_id, 'title': session['title'], 'project': session['project'], 'device_id': 'local', 'source_hash': revision['source_hash'], 'events_file': 'events.jsonl', 'event_count': event_count, 'assets': [], 'contents': []}
             files = []
             for aid in sorted(asset_ids - excluded):
                 asset = conn.execute(select(db.assets).where(db.assets.c.id == aid)).mappings().first()
@@ -280,7 +282,7 @@ def export_job(config, job_id):
                 writer.heading(session['title'], 1)
                 last = 0
                 while True:
-                    rows = conn.execute(select(db.events).where(db.events.c.revision_id == revision_id, db.events.c.seq > last).order_by(db.events.c.seq).limit(40)).mappings().all()
+                    rows = conn.execute(select(db.events).where(db.events.c.revision_id == revision_id, db.events.c.seq > last, db.visible_round(db.events.c.revision_id, db.events.c.round_number)).order_by(db.events.c.seq).limit(40)).mappings().all()
                     if not rows: break
                     for row in rows:
                         event = readable_event(hydrate_event(conn, row['event_json']))
@@ -303,7 +305,7 @@ def export_job(config, job_id):
                     out.write('# ' + session['title'] + '\n\n')
                 last = 0
                 while True:
-                    rows = conn.execute(select(db.events).where(db.events.c.revision_id == revision_id, db.events.c.seq > last).order_by(db.events.c.seq).limit(40)).mappings().all()
+                    rows = conn.execute(select(db.events).where(db.events.c.revision_id == revision_id, db.events.c.seq > last, db.visible_round(db.events.c.revision_id, db.events.c.round_number)).order_by(db.events.c.seq).limit(40)).mappings().all()
                     if not rows:
                         break
                     for row in rows:

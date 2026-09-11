@@ -48,6 +48,9 @@ export type Source = {
   session_id?: string;
 };
 export type Round = {
+  deleted?: boolean;
+  note?: string;
+  deleted_at?: number;
   number: number;
   start_seq: number;
   end_seq: number;

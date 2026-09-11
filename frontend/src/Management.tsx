@@ -1,4 +1,3 @@
-import {AISettings} from "./AISettings";
 import { Fragment, useEffect, useRef, useState } from "react";
 import {
   X,
@@ -1039,7 +1038,7 @@ export function AdminPanel({
           </div>
         ))}
       </div>
-      <details className="team-api-settings"><summary>团队 API 设置</summary><AISettings api={api}/></details>
+
       <h2 className="section-title">邀请记录</h2>
       {deleteTarget && (
         <Modal title="删除成员账号" onClose={() => { if (!deleting) setDeleteTarget(null); }}>

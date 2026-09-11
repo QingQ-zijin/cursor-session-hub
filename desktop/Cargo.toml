@@ -1,6 +1,6 @@
 [package]
 name = "cursor-session-hub"
-version = "1.5.1"
+version = "1.5.2"
 description = "Local-first Cursor session collaboration"
 edition = "2021"
 

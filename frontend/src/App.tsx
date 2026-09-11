@@ -1,7 +1,7 @@
-import {AIChat} from "./AIChat";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
+  Download,
   Folder,
   FolderPlus,
   PanelLeft,
@@ -511,7 +511,6 @@ export default function App() {
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey)) return;
-      if (event.key.toLowerCase() === 'k') { event.preventDefault(); focusSearch(); }
       if (event.key.toLowerCase() === 'b') { event.preventDefault(); toggleSidebar(); }
     };
     document.addEventListener('keydown', key); return () => document.removeEventListener('keydown', key);
@@ -588,30 +587,6 @@ export default function App() {
                   />
                 </div>
               )}
-              <div className="index-filters">
-                <div className="search-field">
-                  <Search size={16} />
-                  <input
-                    ref={searchInput}
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="搜索会话与正文"
-                    aria-label="搜索会话与正文"
-                  />
-                  {search && (
-                    <button aria-label="清除搜索" onClick={() => setSearch("")}>
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-                <button
-                  className={"icon-button " + (filterOpen ? "active" : "")}
-                  aria-label="筛选项目与日期"
-                  onClick={() => setFilterOpen(!filterOpen)}
-                >
-                  <SlidersHorizontal size={17} />
-                </button>
-              </div>
               {team && (
                 <div className="owner-filter">
                   <Users size={15} />
@@ -718,14 +693,6 @@ export default function App() {
                   <button onClick={() => setSelection(new Set())}>
                     取消选择
                   </button>
-                  {local && !team && (
-                    <button
-                      disabled={selection.size > 10}
-                      onClick={() => beginSync(selectionItems)}
-                    >
-                      同步到服务器 <ArrowUpRight size={13} />
-                    </button>
-                  )}
                   <span>{selection.size > 10 ? "单次最多 10 条" : ""}</span>
                 </div>
               )}
@@ -825,15 +792,6 @@ export default function App() {
                         </span>
                       </button>
                       <div className="session-row-actions">
-                        {local && !team && (
-                          <button
-                            title="同步到服务器"
-                            aria-label={"同步 " + s.title + " 到服务器"}
-                            onClick={() => beginSync([s])}
-                          >
-                            <Cloud size={14} />
-                          </button>
-                        )}
                         {nav === "favorites" && (
                           <button
                             title="取消收藏"
@@ -922,15 +880,9 @@ export default function App() {
     );
   return (
     <div className={"app cursor-shell " + (selected ? "has-reader " : "") + (dockRight ? "dock-right " : "") + (!sideVisible ? "side-hidden" : "")}>
-      <Titlebar toggle={toggleSidebar} dock={dockRight} onDock={switchDock} onImport={local&&!team ? () => void chooseImport() : undefined} onSearch={() => focusSearch()} onHelp={() => setHelp(true)} onTheme={() => setTheme(value => value === 'light' ? 'dark' : 'light')}/>
+      <Titlebar toggle={toggleSidebar} dock={dockRight} onDock={switchDock} onImport={local&&!team ? () => void chooseImport() : undefined} onHelp={() => setHelp(true)} onTheme={() => setTheme(value => value === 'light' ? 'dark' : 'light')}/>
       <aside className={"sidebar " + (mobileNav ? "mobile-open" : "")}>
         <div className="side-top"><button className="icon-button" aria-label="收起工作区侧栏" onClick={toggleSidebar}><PanelLeft size={17}/></button><span/><button className="icon-button" aria-label="返回预览首页" onClick={() => {selectionGeneration.current++;initialSession.current=null;setSelected(null);historyReplace();}}><ChevronLeft size={18}/></button><button className="icon-button" aria-label="打开最近会话" disabled={!tabs.length} onClick={() => {const last=tabs.at(-1);if(last)openSession(last);}}><ChevronRight size={18}/></button></div>
-        <nav aria-label="主导航">
-          <button className={!selected && ['local','team'].includes(nav) ? 'selected' : ''} onClick={() => navigate(team ? 'team' : 'local')}><Send size={18}/><span>New Chat</span></button>
-          <button onClick={() => focusSearch()}><Search size={18}/><span>Search</span></button>
-          <button className={nav==='jobs'?'selected':''} aria-label="同步任务" onClick={() => navigate('jobs')}><RefreshCw size={18}/><span>Sync tasks</span>{hasUpdates&&<i className="nav-dot"/>}</button>
-          <button aria-label="自定义工作台" onClick={() => setPreferences(true)}><SlidersHorizontal size={18}/><span>Customize</span></button>
-        </nav>
         <div className="sidebar-library">{activeUser && indexPanel}</div>
         <div className="sidebar-account">
           <div className="scope-switch" aria-label="记录位置">{local&&<button className={!team?'active':''} aria-label="本地记录" onClick={() => navigate('local')}><Laptop size={15}/>This PC</button>}<button className={team?'active':''} aria-label="团队空间" onClick={() => navigate('team')}><Users size={15}/>Team</button><button title="我的收藏" aria-label="我的收藏" onClick={() => navigate('favorites')}><Bookmark size={15}/></button></div>
@@ -940,7 +892,7 @@ export default function App() {
       </aside>
       {mobileNav&&<button className="sidebar-scrim" aria-label="关闭侧栏" onClick={()=>setMobileNav(false)}/>}
       <main className="workspace">
-        <div className="workbench-toolbar"><button className="icon-button" aria-label="展开主菜单" onClick={toggleSidebar}><PanelLeft size={17}/></button><span className="workbench-location">{team ? 'Team' : 'This PC'}</span><span className="toolbar-space"/><button className="focus-toggle" onClick={toggleSidebar}>Preview <ArrowUpRight size={13}/></button><button className="icon-button" aria-label="工作台说明" onClick={()=>setHelp(true)}><MoreHorizontal size={18}/></button><PaneButton right={dockRight} onClick={switchDock}/></div>
+        <div className="workbench-toolbar"><button className="icon-button" aria-label="展开主菜单" onClick={toggleSidebar}><PanelLeft size={17}/></button><span className="workbench-location">{team ? 'Team' : 'This PC'}</span><span className="toolbar-space"/>{local&&!team&&<button className="button compact" aria-label="同步所选会话" disabled={selection.size>10||(!selection.size&&!selected)} onClick={()=>beginSync(selection.size?selectionItems:selected?[selected]:[])}><Cloud size={14}/>同步{selection.size?` (${selection.size})`:""}</button>}<button className="icon-button" aria-label="同步任务" title="任务与下载" onClick={()=>navigate('jobs')}><Download size={16}/></button><button className="icon-button" aria-label="工作台说明" onClick={()=>setHelp(true)}><MoreHorizontal size={18}/></button><PaneButton right={dockRight} onClick={switchDock}/></div>
         {team && !activeUser ? (
           <Login
             local={!!local}
@@ -994,7 +946,7 @@ export default function App() {
                 versionSignal={versionSignal}
               />
             ) : (
-              <PreviewHome chat={activeUser ? <AIChat key={scope+generation} api={api} user={activeUser} initialSessions={selectionItems}/> : undefined} projects={projects} project={project} onProject={value=>{setProject(value);setHistory(['']);}} team={team} local={!!local} onScope={navigate} onSearch={focusSearch} onImport={()=>void chooseImport()} onSources={()=>setSourceOpen(true)} onFavorites={()=>navigate('favorites')} onJobs={()=>navigate('jobs')}/>
+              <PreviewHome/>
 
             )}
           </div>

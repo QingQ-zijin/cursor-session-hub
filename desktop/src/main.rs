@@ -72,6 +72,12 @@ fn window_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn interface_zoom(app: tauri::AppHandle, scale: f64) -> Result<(), String> {
+    if !scale.is_finite() || !(0.67..=1.75).contains(&scale) { return Err("无效缩放比例".into()); }
+    app.get_webview_window("main").ok_or("窗口不可用")?.set_zoom(scale).map_err(|e|e.to_string())
+}
+
+#[tauri::command]
 async fn open_release(app: tauri::AppHandle, url: String) -> Result<(), String> {
     let parsed = reqwest::Url::parse(&url).map_err(|_| "无效更新地址".to_string())?;
     if parsed.scheme() != "https" || parsed.host_str() != Some("github.com")
@@ -205,7 +211,7 @@ fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![native_bridge, window_action, open_release, choose_files, native_asset, save_download, subscribe_activity, unsubscribe_activity])
+        .invoke_handler(tauri::generate_handler![native_bridge, window_action, interface_zoom, open_release, choose_files, native_asset, save_download, subscribe_activity, unsubscribe_activity])
         .setup(|app| {
             let token = uuid::Uuid::new_v4().to_string() + &uuid::Uuid::new_v4().to_string();
             let (mut events, child) = app.shell().sidecar("hub-core")?
@@ -256,8 +262,9 @@ fn main() {
                 let check = tauri::async_runtime::block_on(async {
                     state.client.get(format!("http://127.0.0.1:{port}/api/v1/capabilities")).bearer_auth(&state.token).send().await
                 });
-                let success = check.map(|r|r.status().is_success()).unwrap_or(false);
-                if let Ok(path) = std::env::var("CSH_SMOKE_OUTPUT") { let _ = std::fs::write(path, json!({"ok":success,"backend_ready":true,"version":env!("CARGO_PKG_VERSION")}).to_string()); }
+                let zoom_ok = app.get_webview_window("main").map(|w|w.set_zoom(1.25).is_ok() && w.set_zoom(1.0).is_ok()).unwrap_or(false);
+                let success = check.map(|r|r.status().is_success()).unwrap_or(false) && zoom_ok;
+                if let Ok(path) = std::env::var("CSH_SMOKE_OUTPUT") { let _ = std::fs::write(path, json!({"ok":success,"backend_ready":true,"zoom_verified":zoom_ok,"version":env!("CARGO_PKG_VERSION")}).to_string()); }
                 terminate_owned_backend(&state);
                 app.handle().exit(if success {0} else {1});
             } else if let Some(window) = app.get_webview_window("main") { window.show()?; }

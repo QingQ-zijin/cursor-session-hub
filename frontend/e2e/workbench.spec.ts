@@ -46,7 +46,7 @@ test('Cursor-style workspace tree, tabs, side docking and responsive previews',a
   await page.getByRole('button',{name:'将工作区移至左侧'}).click();
   await page.keyboard.press('Control+b');await expect(page.locator('.sidebar')).not.toBeVisible();
   await page.keyboard.press('Control+b');await expect(page.locator('.sidebar')).toBeVisible();
-  await page.keyboard.press('Control+k');await expect(page.getByLabel('搜索会话与正文')).toBeFocused();
+  await expect(page.getByLabel('搜索会话与正文')).toHaveCount(0);
   await page.getByRole('button',{name:'View',exact:true}).click();await page.getByRole('menuitem',{name:'切换深浅色主题'}).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
   await page.screenshot({animations:'disabled',path:path.join(shots,'dark-reader.png')});

@@ -4,9 +4,9 @@
 
 基于当前 cc_transcript_viewer 及其本地导入、分轮加载改动开发，保留上游MIT许可证和解析规则。旧查看器仍可运行；产品使用独立数据目录。
 
-## v1.5.1 工作台与 API 聊天
+## v1.5.2 简洁阅读工作台
 
-界面采用 Cursor 风格的单侧工作区树、会话标签和中央阅读区。支持工作区折叠、左/右停靠、深浅色切换、代码复制，以及 Ctrl/Cmd K 搜索、Ctrl/Cmd B 收起侧栏。管理员配置 OpenAI 兼容 API 后，可基于当前会话或通过 `@` 引用其他会话聊天；只生成文字回复，不执行历史工具命令。见 [API 聊天配置](docs/AI_CHAT.md)。
+左侧工作区、中央阅读、右侧轮次目录与回收站。移除 New Chat、Search、Customize 等冗余导航以及 API 聊天；同步集中到一个入口。执行过程默认合并收起，支持按轮删除、备注与恢复。Ctrl/Cmd + 加减号缩放，Ctrl/Cmd 0 恢复 100%，Ctrl/Cmd B 收起侧栏。见 [轮次管理](docs/ROUND_MANAGEMENT.md)。
 
 ## 功能
 
@@ -77,7 +77,7 @@ python scripts/verify_cloud_flow.py 使用独立测试账户和合成记录，�
 
 首次安装迁移原查看器Downloads目录中的.local/imports与自定义标题，仅入本地库，不自动上传；保留旧ID和路径别名。
 
-CSH_HOME可指定独立数据目录。CSH_MIN_FREE_BYTES默认5GiB、CSH_MIN_FREE_RATIO默认10%；空间不足停止新上传。测试可显式降低阈值，不改变生产默认值。桌面团队登录凭证保存在操作系统凭证管理器；模型 API 密钥的加密和备份方式见 [API 聊天](docs/AI_CHAT.md)。
+CSH_HOME可指定独立数据目录。CSH_MIN_FREE_BYTES默认5GiB、CSH_MIN_FREE_RATIO默认10%；空间不足停止新上传。测试可显式降低阈值，不改变生产默认值。桌面团队登录凭证保存在操作系统凭证管理器。
 
 ## 验证
 
