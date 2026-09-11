@@ -15,12 +15,15 @@ export function normalizeMath(source:string):string {
       out+=text[i++];
     }return out;
   }
-  const parts:string[]=[];let prose='',fence='',width=0;
+  const parts:string[]=[];let prose='',fence='',width=0,display='';
   function flush(){if(prose){parts.push(inline(prose));prose=''}}
   for(const line of source.match(/[^\n]*\n|[^\n]+$/g)||[]){
     const marker=/^ {0,3}(`{3,}|~{3,})/.exec(line);
     if(fence){parts.push(line);if(marker&&marker[1][0]===fence&&marker[1].length>=width&&/^\s*$/.test(line.slice(marker[0].length)))fence='';continue}
+    if(display){prose+=line;if(line.includes(display))display='';continue}
     if(marker){flush();fence=marker[1][0];width=marker[1].length;parts.push(line);continue}
+    if(/^ {0,3}\\\[/.test(line)&&!line.slice(line.indexOf('\\[')+2).includes('\\]')){prose+=line;display='\\]';continue}
+    if(/^ {0,3}\$\$\s*$/.test(line)){prose+=line;display='$$';continue}
     if(/^( {4}|\t)/.test(line)){flush();parts.push(line);continue}
     const bare=/^\s*\[([^\n]+)\]\s*$/.exec(line);
     if(bare&&/\\(?:mathrm|mathbf|mathbb|mathcal|frac|sqrt|sum|prod|int|sim|to|quad|Delta|alpha|beta|theta|lambda|left|right)\b/.test(bare[1]))prose+='\\['+bare[1]+'\\]\n';

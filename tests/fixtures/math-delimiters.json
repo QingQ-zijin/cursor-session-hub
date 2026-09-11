@@ -10,5 +10,7 @@
   {"name":"indented code","source":"    \\(x\\)\n","expected":"    \\(x\\)\n"},
   {"name":"ordinary brackets","source":"[not math]\n[link](https://example.com/a_(b))\n","expected":"[not math]\n[link](https://example.com/a_(b))\n"},
   {"name":"escaped literal","source":"\\\\(literal\\\\)","expected":"\\\\(literal\\\\)"},
-  {"name":"unmatched","source":"open \\(x","expected":"open \\(x"}
+  {"name":"unmatched","source":"open \\(x","expected":"open \\(x"},
+  {"name":"indented display content","source":"\\[\n    x=y\n\\]","expected":"\n\n$$\nx=y\n$$\n\n"},
+  {"name":"indented dollar content","source":"$$\n    x=y\n$$","expected":"$$\n    x=y\n$$"}
 ]

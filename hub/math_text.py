@@ -30,7 +30,7 @@ def normalize_math(source):
                 out.append(text[i:i+2]);i+=2;continue
             out.append(text[i]);i+=1
         return ''.join(out)
-    parts=[];prose=[];fence='';width=0
+    parts=[];prose=[];fence='';width=0;display=''
     def flush():
         if prose:parts.append(inline(''.join(prose)));prose.clear()
     for line in source.splitlines(keepends=True):
@@ -39,7 +39,13 @@ def normalize_math(source):
             parts.append(line)
             if marker and marker[1][0]==fence and len(marker[1])>=width and not line[marker.end():].strip():fence=''
             continue
+        if display:
+            prose.append(line)
+            if display in line:display=''
+            continue
         if marker:flush();fence=marker[1][0];width=len(marker[1]);parts.append(line);continue
+        if re.match(r'^ {0,3}\\\[',line) and '\\]' not in line[line.index('\\[')+2:]:prose.append(line);display='\\]';continue
+        if re.match(r'^ {0,3}\$\$\s*$',line):prose.append(line);display='$$';continue
         if re.match(r'^( {4}|\t)',line):flush();parts.append(line);continue
         bare=re.match(r'^\s*\[([^\n]+)\]\s*$',line)
         if bare and re.search(r'\\(?:mathrm|mathbf|mathbb|mathcal|frac|sqrt|sum|prod|int|sim|to|quad|Delta|alpha|beta|theta|lambda|left|right)\b',bare[1]):prose.append('\\['+bare[1]+'\\]\n')
