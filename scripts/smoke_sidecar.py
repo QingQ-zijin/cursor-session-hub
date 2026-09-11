@@ -22,13 +22,17 @@ def main():
   sample=home/'示例.jsonl';sample.write_text(json.dumps({'role':'user','message':{'content':[{'type':'text','text':'你好，请检查这个记录。'}]}},ensure_ascii=False)+'\n'+json.dumps({'role':'assistant','message':{'content':[{'type':'text','text':'已完成。\n\n```python\nprint(1)\n```'}]}},ensure_ascii=False)+'\n',encoding='utf-8')
   env=dict(os.environ,CSH_HOME=str(home),CSH_LOCAL_TOKEN=token,CSH_MIN_FREE_BYTES='1048576',CSH_MIN_FREE_RATIO='0',CSH_MIGRATE_LEGACY='0')
   log=(home/'stderr.log').open('w',encoding='utf-8')
-  process=subprocess.Popen([str(binary),'serve','--mode','local','--host','127.0.0.1','--port','0'],env=env,stdout=subprocess.PIPE,stderr=log,text=True,encoding='utf-8')
+  # Uvicorn access logs go to stdout. An unread PIPE fills quickly on Windows
+  # and blocks the server while it writes its response log. Capture both streams.
+  process=subprocess.Popen([str(binary),'serve','--mode','local','--host','127.0.0.1','--port','0'],env=env,stdout=log,stderr=log)
   try:
    deadline=time.monotonic()+90;port=None
    while time.monotonic()<deadline:
-    line=process.stdout.readline()
-    if line.startswith('CSH_READY '):port=json.loads(line[10:])['port'];break
+    for line in (home/'stderr.log').read_text(encoding='utf-8',errors='replace').splitlines():
+     if line.startswith('CSH_READY '):port=json.loads(line[10:])['port'];break
+    if port:break
     if process.poll() is not None:raise RuntimeError('Frozen core exited: '+(home/'stderr.log').read_text(encoding='utf-8'))
+    time.sleep(.1)
    if not port:raise RuntimeError('Frozen core readiness timeout')
    base=f'http://127.0.0.1:{port}/api/v1'
    def call(path,body=None,method=None):
