@@ -1,16 +1,16 @@
-# Cursor Session Hub 1.1.1
+# Cursor Session Hub v1.5（1.5.0）
 
 无需安装 Python、Node.js 或 Rust。先使用离线本地库；准备好服务器后，再登录团队空间，手动同步选定记录。
 
-下载：[Release v1.1.1](https://github.com/QingQ-zijin/cursor-session-hub/releases/tag/v1.1.1)。
+下载：[Release v1.5.0](https://github.com/QingQ-zijin/cursor-session-hub/releases/tag/v1.5.0)。
 
 ## 选择安装包
 
 | 电脑 | 文件 |
 |---|---|
-| Windows 64位 | Cursor.Session.Hub_1.1.1_x64-setup.exe |
-| Mac M系列芯片 | Cursor.Session.Hub_1.1.1_aarch64.dmg |
-| Mac Intel芯片 | Cursor.Session.Hub_1.1.1_x64.dmg |
+| Windows 64位 | Cursor.Session.Hub_1.5.0_x64-setup.exe |
+| Mac M系列芯片 | Cursor.Session.Hub_1.5.0_aarch64.dmg |
+| Mac Intel芯片 | Cursor.Session.Hub_1.5.0_x64.dmg |
 
 Windows 双击安装程序。Mac 打开对应 DMG，将应用拖入 Applications，再从 Applications 启动。Mac 安装目标为 macOS 13 或更新版本；本次实际构建与启动检查分别运行于 macOS 14 Apple Silicon 和 macOS 15 Intel。
 
@@ -54,3 +54,7 @@ PDF 按页提取文字，不将 PDF 原文冒充为 Cursor 对话。扫描页没
 ## 导出文件
 
 会话右上角“会话操作”可选择导出 Markdown、HTML 或 PDF。后台完成后，在“同步任务”中点击相应的下载按钮。1.1.1 修正了 Markdown 被默认保存为 .html 的问题，已有导出任务也会返回正确扩展名。PDF 内置中文字体，支持分页、代码、表格和关联图片；数学公式保留 LaTeX 原文，需要公式排版时使用 HTML。
+
+## v1.5 工作台
+
+侧栏 Repositories 按工作区展示会话，点击文件夹可折叠。点击会话进入预览，顶部标签可切换已打开的记录。右上角侧栏图标可将工作区移至另一侧。Customize 可调整深浅色和停靠位置。Ctrl/Cmd K 搜索，Ctrl/Cmd B 收起侧栏。New Preview 返回预览首页，中央输入框用于搜索已保存会话。This PC / Team 切换本地和团队数据，Sync tasks 查看同步、解析和导出任务。

@@ -8,9 +8,9 @@
 
 ## 发布步骤
 
-1. 执行 `python scripts/set_version.py 1.1.2`（换成下一个版本）。
-2. 写好 `docs/releases/v1.1.2.md`，提交修改并推送 master。
-3. `git tag v1.1.2`，然后 `git push origin v1.1.2`。
+1. 执行 `python scripts/set_version.py 1.5.1`（换成下一个版本）。
+2. 写好 `docs/releases/v1.5.1.md`，提交修改并推送 master。
+3. `git tag v1.5.1`，然后 `git push origin v1.5.1`。
 4. Actions 先运行后端、前端和浏览器回归，再分别构建 Windows x64、Mac ARM、Mac Intel，验证冻结解析器及安装/挂载后的应用启动。
 5. 三个平台通过后，Actions 创建含三个安装包、SHA256SUMS.txt、LICENSE、NOTICE.md 和字体许可证 FONT-LICENSE.txt 的 Release 草稿。检查附件与说明，点击 **Publish release**，设为 Latest。安装了更新检测功能的客户端会在下次检查时提示。
 
