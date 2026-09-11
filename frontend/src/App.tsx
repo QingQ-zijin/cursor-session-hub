@@ -189,12 +189,13 @@ export default function App() {
     localStorage.setItem("csh-theme", theme);
   }, [theme]);
   useEffect(() => {
+    if (search === searchQuery) return;
     const t = setTimeout(() => {
       setSearchQuery(search);
       setHistory([""]);
     }, 300);
     return () => clearTimeout(t);
-  }, [search]);
+  }, [search, searchQuery]);
   useEffect(() => {
     if (!caps || !activeUser) return;
     let valid = true;
