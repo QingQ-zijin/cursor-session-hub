@@ -33,6 +33,9 @@ uploads = Table('uploads', metadata, ident(), Column('owner_id', String(100), nu
 syncs = Table('syncs', metadata, ident(), Column('owner_id', String(100), nullable=False, index=True), Column('device_id', String(300), default=''), Column('session_id', String(100)), Column('revision_id', String(100)), Column('upload_id', String(100)), Column('job_id', String(100)), Column('state', String(30), nullable=False), Column('error', Text), Column('metadata_json', JSON, default=dict), timestamp(), timestamp('updated_at'))
 activity = Table('activity', metadata, Column('id', Integer, primary_key=True, autoincrement=True), Column('kind', String(40), nullable=False), Column('owner_id', String(100)), Column('session_id', String(100)), Column('payload_json', JSON, default=dict), timestamp())
 leases = Table('leases', metadata, Column('name', String(100), primary_key=True), Column('owner', String(100), nullable=False), Column('expires_at', Float, nullable=False))
+ai_settings = Table('ai_settings', metadata, Column('id', Integer, primary_key=True), Column('config_json', JSON, nullable=False, default=dict), Column('key_cipher', Text), timestamp('updated_at'))
+ai_threads = Table('ai_threads', metadata, ident(), Column('owner_id', String(100), nullable=False, index=True), Column('title', Text, nullable=False), timestamp(), timestamp('updated_at'))
+ai_messages = Table('ai_messages', metadata, ident(), Column('thread_id', String(100), nullable=False, index=True), Column('owner_id', String(100), nullable=False), Column('seq', Integer, nullable=False), Column('role', String(20), nullable=False), Column('text', Text, nullable=False, default=''), Column('state', String(20), nullable=False), Column('error', Text), Column('request_id', String(100)), Column('metadata_json', JSON, default=dict), timestamp(), timestamp('updated_at'), UniqueConstraint('thread_id','seq'), UniqueConstraint('thread_id','request_id'))
 
 def get_engine(config):
     config.prepare()
@@ -53,6 +56,8 @@ def init_db(engine):
     with engine.begin() as conn:
         if not conn.execute(select(schema_versions.c.version).where(schema_versions.c.version == 1)).first():
             conn.execute(schema_versions.insert().values(version=1))
+        if not conn.execute(select(schema_versions.c.version).where(schema_versions.c.version == 2)).first():
+            conn.execute(schema_versions.insert().values(version=2))
         if not conn.execute(select(users.c.id).where(users.c.id == 'local')).first():
             conn.execute(users.insert().values(id='local', username='__local__', display_name='我', role='admin', active=True))
 

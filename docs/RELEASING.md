@@ -1,6 +1,6 @@
 # 发布与更新检测
 
-客户端只向本仓库的公开 GitHub `releases/latest` 接口匿名读取版本信息，不发送账号、设备路径或会话数据。启动 5 秒后检查，运行中每 6 小时检查；回到应用时，距上次检查超过 1 小时也会检查。左下角版本号提供手动入口。检测结果缓存 15 分钟，连接失败缓存 1 分钟。
+从 1.5.1 起，客户端优先匿名读取本仓库 `releases/latest/download/update.json`，只在清单不存在（404）时兼容回退 GitHub Releases API。不会发送账号、设备路径或会话数据。启动 5 秒后检查，成功后每 6 小时检查；回到应用且距离上次检查超过 5 分钟也会检查。成功结果缓存 15 分钟，手动检查在上次请求超过 30 秒后可刷新缓存。连接失败至少等待 1 分钟；限流遵守服务器的重置时间，手动检查也不会绕过该等待。
 
 仅接受 `v主版本.次版本.补丁版本` 的正式 Release，比较数字版本，忽略草稿、预发布和低于当前安装版的版本。发现更新显示“发现新版本”，用户查看说明并点击下载。Windows/macOS 的体系结构决定推荐安装包；其他平台可访问发布页面。当前实现不静默下载或自动运行安装程序。
 
@@ -12,7 +12,7 @@
 2. 写好 `docs/releases/v1.5.1.md`，提交修改并推送 master。
 3. `git tag v1.5.1`，然后 `git push origin v1.5.1`。
 4. Actions 先运行后端、前端和浏览器回归，再分别构建 Windows x64、Mac ARM、Mac Intel，验证冻结解析器及安装/挂载后的应用启动。
-5. 三个平台通过后，Actions 创建含三个安装包、SHA256SUMS.txt、LICENSE、NOTICE.md 和字体许可证 FONT-LICENSE.txt 的 Release 草稿。检查附件与说明，点击 **Publish release**，设为 Latest。安装了更新检测功能的客户端会在下次检查时提示。
+5. 三个平台通过后，Actions 创建含三个安装包、update.json、SHA256SUMS.txt、LICENSE、NOTICE.md 和字体许可证 FONT-LICENSE.txt 的 Release 草稿。检查附件与说明，点击 **Publish release**，设为 Latest。安装了更新检测功能的客户端会在下次检查时提示。
 
 `Build desktop installers` 仍可手动运行单个平台或全部平台，不创建 Release。不能将未构建成功的 Mac 包标为已交付，也不能将 `.runtime`、用户数据、截图、凭证或服务器 `.env` 放入发布附件。
 

@@ -121,21 +121,25 @@ def create_app(config: Config | None = None):
     admission_lock = threading.RLock()
     engine._csh_admission_lock = admission_lock
     login_attempts = {}
+    from .ai import Manager, create_router as create_ai_router
+    ai_manager = Manager(config, engine)
 
     @asynccontextmanager
     async def lifespan(app):
+        ai_manager.recover()
         worker = None
         if not config.worker_external:
             from .worker import start_worker
             worker = start_worker(config)
         yield
+        ai_manager.close()
         if worker and hasattr(worker, 'stop'):
             worker.stop()
             if hasattr(worker, 'join'):
                 await asyncio.to_thread(worker.join,10)
         engine.dispose()
 
-    app = FastAPI(title='Cursor Session Hub', version='1.5.0', lifespan=lifespan)
+    app = FastAPI(title='Cursor Session Hub', version='1.5.1', lifespan=lifespan)
     # Register before the HTTP decorator below so this sits directly around
     # routing. Receive-limit exceptions then reach FastAPI without being
     # wrapped in BaseHTTPMiddleware's request-relay task groups.
@@ -143,6 +147,7 @@ def create_app(config: Config | None = None):
     app.add_middleware(StreamBodyLimitMiddleware,config=config)
     app.state.config = config
     app.state.engine = engine
+    app.state.ai_manager = ai_manager
     @app.exception_handler(RequestValidationError)
     async def validation_error(request,exc):
         details=[]
@@ -242,9 +247,9 @@ def create_app(config: Config | None = None):
     release_checker = ReleaseChecker()
 
     @router.get('/updates')
-    def check_updates(user=Depends(require_user)):
+    def check_updates(user=Depends(require_user),force:bool=False):
         local_only()
-        return release_checker.check()
+        return release_checker.check(force=force)
 
     @router.get('/capabilities')
     def capabilities(request: Request):
@@ -356,6 +361,7 @@ def create_app(config: Config | None = None):
             conn.execute(update(db.users).where(db.users.c.id == ident).values(**values, updated_at=db.now()))
             if values.get('active') is False:
                 auth.revoke_user(conn, ident)
+                conn.execute(db.ai_messages.update().where(db.ai_messages.c.owner_id==ident,db.ai_messages.c.state.in_(('queued','running'))).values(state='cancelled',error='账号已停用',updated_at=db.now()))
             return auth.public_user(conn.execute(select(db.users).where(db.users.c.id == ident)).mappings().one())
 
     @router.delete('/members/{ident}')
@@ -378,6 +384,8 @@ def create_app(config: Config | None = None):
             conn.execute(update(db.jobs).where(db.jobs.c.owner_id == ident, db.jobs.c.state.in_(('queued', 'paused'))).values(state='cancelled', error='账号已删除', updated_at=db.now()))
             conn.execute(update(db.syncs).where(db.syncs.c.owner_id == ident, db.syncs.c.state.in_(('queued', 'pending', 'running', 'syncing', 'processing', 'paused', 'uploading'))).values(state='cancelled', error='账号已删除', updated_at=db.now()))
             auth.revoke_user(conn, ident)
+            conn.execute(delete(db.ai_messages).where(db.ai_messages.c.owner_id==ident))
+            conn.execute(delete(db.ai_threads).where(db.ai_threads.c.owner_id==ident))
             conn.execute(delete(db.favorites).where(db.favorites.c.owner_id == ident))
             conn.execute(delete(db.invites).where(or_(db.invites.c.created_by == ident, db.invites.c.used_by == ident)))
             # Keep shared conversations/comments on the immutable owner ID; a
@@ -975,6 +983,7 @@ def create_app(config: Config | None = None):
     if config.mode=='local':
         from .remote import create_router
         router.include_router(create_router(config,engine,require_user))
+    router.include_router(create_ai_router(config,engine,require_user,ai_manager))
     app.include_router(router)
 
     @app.get('/health')

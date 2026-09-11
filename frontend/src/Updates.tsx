@@ -7,7 +7,8 @@ import { Modal } from "./Management";
 import { version } from "../package.json";
 
 interface Release {
-  status: "ok" | "no_release" | "unavailable";
+  status: "ok" | "no_release" | "unavailable" | "rate_limited";
+  retry_at?: number;
   available: boolean;
   current_version: string;
   latest_version?: string;
@@ -30,9 +31,12 @@ export function Updates({ local }: { local: boolean }) {
     setBusy(true);
     setError("");
     try {
-      setRelease(await request<Release>("/updates"));
+      const value = await request<Release>("/updates" + (manual ? "?force=true" : ""));
+      setRelease(value);
+      return value;
     } catch {
-      setError("暂时无法检查更新，请稍后重试。");
+      setError("暂时无法检查更新，将自动重试。");
+      return undefined;
     } finally {
       checking.current = false;
       setBusy(false);
@@ -40,15 +44,22 @@ export function Updates({ local }: { local: boolean }) {
   }
   useEffect(() => {
     if (!local) return;
-    const start = setTimeout(() => void check(), 5000);
-    const timer = setInterval(() => void check(), 6 * 60 * 60 * 1000);
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const run = async () => {
+      const result = await check();
+      if (!alive) return;
+      const delay = result?.status === 'ok' || result?.status === 'no_release' ? 21600000 : Math.max(60000, ((result?.retry_at || Date.now()/1000+60)-Date.now()/1000)*1000);
+      timer = setTimeout(() => void run(), delay);
+    };
+    timer = setTimeout(() => void run(), 5000);
     const focus = () => {
-      if (Date.now() - lastCheck.current >= 60 * 60 * 1000) void check();
+      if (Date.now() - lastCheck.current >= 5 * 60 * 1000) void check();
     };
     window.addEventListener("focus", focus);
     return () => {
-      clearTimeout(start);
-      clearInterval(timer);
+      alive = false;
+      clearTimeout(timer);
       window.removeEventListener("focus", focus);
     };
   }, [local]);
@@ -64,19 +75,19 @@ export function Updates({ local }: { local: boolean }) {
   return <>
     <button className={"version-button " + (release?.available ? "update-available" : "")}
       title="检查软件更新" aria-label="检查软件更新" onClick={() => void check(true)}>
-      {release?.available ? <><Download size={13} />发现新版本</> : `v${version}`}
+      {release?.available ? <><Download size={13} />发现新版本</> : error || release?.status === 'unavailable' || release?.status === 'rate_limited' ? '更新检查失败' : `v${version}`}
     </button>
     {open && createPortal(<Modal title="软件更新" onClose={() => setOpen(false)}>
       <div className="help-content update-content">
         <p>当前版本 v{version}</p>
         {busy ? <p role="status"><Loader2 size={16} className="spin" /> 正在检查更新…</p>
-          : error || release?.status === "unavailable" ? <p role="status">{error || "暂时无法连接 GitHub，请稍后重试。本地阅读和同步不受影响。"}</p>
+          : error || release?.status === "unavailable" || release?.status === "rate_limited" ? <p role="status">{error || "更新服务暂时不可用，将自动重试。本地阅读和同步不受影响。"}{release?.retry_at ? ` 下次重试：${new Date(release.retry_at*1000).toLocaleTimeString()}` : ''}</p>
           : release?.available ? <>
             <h3>新版本 v{release.latest_version}</h3>
             <pre className="release-notes">{release.notes || "版本说明请查看发布页面。"}</pre>
             <p>下载后运行安装包即可升级，本地记录和设置会保留。</p>
           </> : <p role="status">{release?.status === "no_release" ? "还没有可下载的正式版本。" : "已是最新版本。"}</p>}
-        <p className="muted">启动时及每 6 小时自动检测正式版；后台检测不会打断阅读。</p>
+        <p className="muted">启动时及每 6 小时读取静态更新清单；失败会显示提示并按恢复时间自动重试。</p>
       </div>
       <footer className="modal-footer">
         <button className="button" onClick={() => void visit(release?.release_url || "https://github.com/QingQ-zijin/cursor-session-hub/releases")}>

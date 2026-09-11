@@ -1,3 +1,4 @@
+import type {ReactNode} from 'react';
 import { useEffect, useState } from 'react';
 import { ArrowUp, ArrowUpRight, FolderOpen, Laptop, Plus, Search, Upload, Users, Bookmark, PanelLeft, PanelRight, Minus, Square, X } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
@@ -26,8 +27,8 @@ export function BootChrome() {
   return <Titlebar busy dock={false} toggle={noop} onDock={noop} onSearch={noop} onHelp={noop} onTheme={noop}/>;
 }
 
-export function PreviewHome({projects,project,onProject,team,local,onScope,onSearch,onImport,onSources,onFavorites,onJobs}: {
-  projects:string[];project:string;onProject:(p:string)=>void;team:boolean;local:boolean;onScope:(scope:'local'|'team')=>void;
+export function PreviewHome({projects,project,onProject,team,local,onScope,onSearch,onImport,onSources,onFavorites,onJobs,chat}: {
+  chat?:ReactNode; projects:string[];project:string;onProject:(p:string)=>void;team:boolean;local:boolean;onScope:(scope:'local'|'team')=>void;
   onSearch:(q:string)=>void;onImport:()=>void;onSources:()=>void;onFavorites:()=>void;onJobs:()=>void;
 }) {
   const [text,setText]=useState('');
@@ -37,7 +38,7 @@ export function PreviewHome({projects,project,onProject,team,local,onScope,onSea
         <select aria-label="筛选工作区" value={project} onChange={e=>onProject(e.target.value)}><option value="">All workspaces</option>{projects.map(p=><option key={p} value={p}>{p.split(/[\\/]/).filter(Boolean).pop()}</option>)}</select>
         <Laptop size={16}/><select aria-label="选择记录位置" value={team?'team':'local'} onChange={e=>onScope(e.target.value as 'local'|'team')}>{local&&<option value="local">This PC</option>}<option value="team">Team server</option></select>
       </div>
-      <form className="preview-composer" onSubmit={e=>{e.preventDefault();onSearch(text)}}>
+      {chat || (      <form className="preview-composer" onSubmit={e=>{e.preventDefault();onSearch(text)}}>
         <textarea aria-label="搜索已保存的会话" placeholder="Search saved conversations" value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();onSearch(text)}}}/>
         <div className="preview-composer-tools">
           {local&&!team&&<button type="button" className="composer-add" title="导入文件" aria-label="添加会话文件" onClick={onImport}><Plus size={21}/></button>}
@@ -45,6 +46,7 @@ export function PreviewHome({projects,project,onProject,team,local,onScope,onSea
           <button className="composer-submit" aria-label="开始搜索会话" title="搜索会话"><ArrowUp size={18}/></button>
         </div>
       </form>
+      )}
       <span className="preview-hint">选择会话开始阅读</span>
       <div className="preview-shortcuts">
         {local&&!team&&<><button onClick={onImport}><Upload size={21}/><strong>Import a session</strong><span>JSONL, Markdown, HTML or PDF</span><ArrowUpRight size={14}/></button>

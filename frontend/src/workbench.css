@@ -3,7 +3,7 @@
 .cursor-shell .session-main{flex-direction:row!important}
 .cursor-shell .reader,.cursor-shell .event,.cursor-shell .round-content{animation:none!important}
 .cursor-shell .index-heading>div:first-child{flex:1}.cursor-shell .repo-filter{margin-left:auto}
-.window-controls{background:#151515;color:#eee}
+.window-controls{background:transparent;color:inherit}
 .boot-screen>.workbench-titlebar{position:absolute;inset:0 0 auto;height:38px}
 .preferences-options{display:flex;gap:8px;margin:12px 0 24px}.preferences-options [aria-pressed=true]{border-color:var(--secondary);background:var(--surface-2)}
 [data-theme="dark"] .preview-composer{background:#202020}

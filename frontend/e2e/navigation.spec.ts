@@ -91,7 +91,7 @@ test('scoped cloud links start in cloud and late deep links cannot reopen a read
 
 test('automatic new-release detection exposes platform download and notes', async ({ page }) => {
   await setup(page);
-  await page.route('**/api/v1/updates', route => route.fulfill({ json: {
+  await page.route('**/api/v1/updates*', route => route.fulfill({ json: {
     status: 'ok', available: true, current_version: '0.1.3', latest_version: '0.1.4', notes: '修复与改进',
     release_url: 'https://github.com/QingQ-zijin/cursor-session-hub/releases/tag/v0.1.4',
     download_url: 'https://github.com/QingQ-zijin/cursor-session-hub/releases/download/v0.1.4/test.exe',
@@ -107,11 +107,11 @@ test('automatic new-release detection exposes platform download and notes', asyn
 
 test('offline release check remains nonfatal and can be retried', async ({ page }) => {
   await setup(page);
-  await page.route('**/api/v1/updates', route => route.fulfill({ json: { status: 'unavailable', available: false } }));
+  await page.route('**/api/v1/updates*', route => route.fulfill({ json: { status: 'unavailable', available: false } }));
   await page.goto('/');
   await page.getByRole('button', { name: '检查软件更新' }).click();
-  await expect(page.getByRole('dialog')).toContainText('暂时无法连接 GitHub');
-  await page.unroute('**/api/v1/updates');
+  await expect(page.getByRole('dialog')).toContainText('更新服务暂时不可用');
+  await page.unroute('**/api/v1/updates*');
   await page.getByRole('button', { name: '重新检查', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('已是最新版本');
 });

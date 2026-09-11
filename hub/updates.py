@@ -14,6 +14,7 @@ from hub import __version__
 
 REPOSITORY = 'https://github.com/QingQ-zijin/cursor-session-hub'
 LATEST = 'https://api.github.com/repos/QingQ-zijin/cursor-session-hub/releases/latest'
+MANIFEST = REPOSITORY + '/releases/latest/download/update.json'
 MAX_RESPONSE = 256 * 1024
 
 
@@ -56,30 +57,51 @@ class ReleaseChecker:
         self.cached = None
         self.expires = 0.0
 
-    def check(self):
+    def fetch(self, client, url):
+        from urllib.parse import urljoin, urlsplit
+        for _ in range(6):
+            parts = urlsplit(url)
+            if parts.scheme != 'https' or parts.hostname not in ('github.com', 'api.github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com') or parts.username or parts.password:
+                raise ValueError('Untrusted update redirect')
+            with client.stream('GET', url, headers={'Accept': 'application/json', 'User-Agent': 'Cursor-Session-Hub'}) as response:
+                if response.status_code in (301,302,303,307,308):
+                    location = response.headers.get('location')
+                    if not location: raise ValueError('Invalid update redirect')
+                    url = urljoin(url, location)
+                    continue
+                if response.status_code != 200:
+                    return response.status_code, dict(response.headers), None
+                content = bytearray()
+                for block in response.iter_bytes(16384):
+                    if len(content) + len(block) > MAX_RESPONSE: raise ValueError('Release response too large')
+                    content.extend(block)
+                return 200, dict(response.headers), json.loads(content)
+        raise ValueError('Too many update redirects')
+
+    def check(self, force=False):
         with self.lock:
+            now = time.time()
             if self.cached and time.monotonic() < self.expires:
-                return self.cached
+                if not force or now - self.cached['checked_at'] < 30 or self.cached['status'] == 'rate_limited':
+                    return self.cached
             result = {'current_version': __version__, 'available': False,
-                      'release_url': REPOSITORY + '/releases', 'status': 'unavailable'}
+                      'release_url': REPOSITORY + '/releases', 'status': 'unavailable', 'checked_at': now,
+                      'channel': 'static', 'retry_at': now + 60}
             try:
                 with httpx.Client(timeout=httpx.Timeout(10, connect=5), follow_redirects=False) as client:
-                    with client.stream('GET', LATEST, headers={
-                        'Accept': 'application/vnd.github+json', 'User-Agent': 'Cursor-Session-Hub',
-                    }) as response:
-                        if response.status_code == 404:
-                            result['status'] = 'no_release'
-                        else:
-                            response.raise_for_status()
-                            content = bytearray()
-                            for chunk in response.iter_bytes(16384):
-                                if len(content) + len(chunk) > MAX_RESPONSE:
-                                    raise ValueError('Release response too large')
-                                content.extend(chunk)
-                            result.update(release_info(json.loads(content)))
-                            result['status'] = 'ok'
+                    status, headers, data = self.fetch(client, MANIFEST)
+                    if status == 404:
+                        result['channel'] = 'api'
+                        status, headers, data = self.fetch(client, LATEST)
+                    if status == 404: result['status'] = 'no_release'
+                    elif status in (403,429):
+                        result['status'] = 'rate_limited'
+                        result['retry_at'] = max(now + 60, min(now + 86400, float(headers.get('x-ratelimit-reset') or now + float(headers.get('retry-after') or 300))))
+                    elif status == 200:
+                        result.update(release_info(data)); result['status'] = 'ok'; result['retry_at'] = now + 21600
             except (httpx.HTTPError, ValueError, TypeError, AttributeError):
                 pass
             self.cached = result
-            self.expires = time.monotonic() + (900 if result['status'] != 'unavailable' else 60)
+            ttl = 900 if result['status'] in ('ok','no_release') else max(60, result['retry_at'] - now)
+            self.expires = time.monotonic() + ttl
             return result

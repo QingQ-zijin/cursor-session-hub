@@ -1,3 +1,4 @@
+import {AIChat} from "./AIChat";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
@@ -925,7 +926,7 @@ export default function App() {
       <aside className={"sidebar " + (mobileNav ? "mobile-open" : "")}>
         <div className="side-top"><button className="icon-button" aria-label="收起工作区侧栏" onClick={toggleSidebar}><PanelLeft size={17}/></button><span/><button className="icon-button" aria-label="返回预览首页" onClick={() => {selectionGeneration.current++;initialSession.current=null;setSelected(null);historyReplace();}}><ChevronLeft size={18}/></button><button className="icon-button" aria-label="打开最近会话" disabled={!tabs.length} onClick={() => {const last=tabs.at(-1);if(last)openSession(last);}}><ChevronRight size={18}/></button></div>
         <nav aria-label="主导航">
-          <button className={!selected && ['local','team'].includes(nav) ? 'selected' : ''} onClick={() => navigate(team ? 'team' : 'local')}><Send size={18}/><span>New Preview</span></button>
+          <button className={!selected && ['local','team'].includes(nav) ? 'selected' : ''} onClick={() => navigate(team ? 'team' : 'local')}><Send size={18}/><span>New Chat</span></button>
           <button onClick={() => focusSearch()}><Search size={18}/><span>Search</span></button>
           <button className={nav==='jobs'?'selected':''} aria-label="同步任务" onClick={() => navigate('jobs')}><RefreshCw size={18}/><span>Sync tasks</span>{hasUpdates&&<i className="nav-dot"/>}</button>
           <button aria-label="自定义工作台" onClick={() => setPreferences(true)}><SlidersHorizontal size={18}/><span>Customize</span></button>
@@ -993,7 +994,7 @@ export default function App() {
                 versionSignal={versionSignal}
               />
             ) : (
-              <PreviewHome projects={projects} project={project} onProject={value=>{setProject(value);setHistory(['']);}} team={team} local={!!local} onScope={navigate} onSearch={focusSearch} onImport={()=>void chooseImport()} onSources={()=>setSourceOpen(true)} onFavorites={()=>navigate('favorites')} onJobs={()=>navigate('jobs')}/>
+              <PreviewHome chat={activeUser ? <AIChat key={scope+generation} api={api} user={activeUser} initialSessions={selectionItems}/> : undefined} projects={projects} project={project} onProject={value=>{setProject(value);setHistory(['']);}} team={team} local={!!local} onScope={navigate} onSearch={focusSearch} onImport={()=>void chooseImport()} onSources={()=>setSourceOpen(true)} onFavorites={()=>navigate('favorites')} onJobs={()=>navigate('jobs')}/>
 
             )}
           </div>

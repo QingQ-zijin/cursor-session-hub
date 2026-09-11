@@ -1,3 +1,5 @@
+import {Markdown} from "./RichText";
+import {AIChat} from "./AIChat";
 import { readContent } from "./content";
 import { Children, isValidElement, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -44,39 +46,6 @@ import {
   stringify,
 } from "./utils";
 
-function CodeFrame({children}: {children: ReactNode}) {
-  const pre = useRef<HTMLPreElement>(null);
-  const [copied,setCopied] = useState(false), [error,setError] = useState(false);
-  const child = Children.toArray(children)[0];
-  const language = isValidElement<{className?: string}>(child) ? (child.props.className || '').replace('language-', '') : '';
-  return <div className="code-frame"><div className="code-frame-header"><span>{language || 'code'}</span><button aria-label="复制代码" onClick={()=>void copyText(pre.current?.textContent || '').then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1800)}).catch(()=>setError(true))}>{copied?<Check size={12}/>:<Copy size={12}/>} {copied?'已复制':error?'复制失败':'Copy'}</button></div><pre ref={pre}>{children}</pre></div>;
-}
-
-function Markdown({ text }: { text: string }) {
-  return (
-    <div className="markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[[rehypeKatex, { strict: false, trust: false }]]}
-        components={{
-          pre: ({children}) => <CodeFrame>{children}</CodeFrame>,
-          a: ({ href, children }) => (
-            <a href={safeLink(href)} target="_blank" rel="noopener noreferrer">
-              {children}
-            </a>
-          ),
-          img: () => (
-            <span className="inline-note">
-              <ImageIcon size={13} /> 远程图片未自动加载
-            </span>
-          ),
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
-  );
-}
 function ErrorText({ error }: { error: string }) {
   return error ? (
     <div className="inline-error" role="alert">
@@ -202,6 +171,8 @@ function StoredImage({
 function Tool({ block, api }: { block: Record<string, unknown>; api: Client }) {
   const [open, setOpen] = useState(false);
   const result = block.result as Record<string, unknown> | string | undefined;
+  const input = block.input && typeof block.input === 'object' ? block.input as Record<string,unknown> : {};
+  const summary = String(block.summary || input.command || input.cmd || input.path || input.file_path || '已保存的工具记录').split(/\r?\n/)[0].slice(0,180);
   return (
     <div className={"tool-record " + (open ? "is-open" : "")}>
       <button
@@ -211,7 +182,7 @@ function Tool({ block, api }: { block: Record<string, unknown>; api: Client }) {
       >
         <Terminal size={15} />
         <strong>{String(block.name || "工具调用")}</strong>
-        <span>{String(block.summary || "输入与执行结果")}</span>
+        <span title={summary}>{summary}</span>
         <ChevronRight size={15} />
       </button>
       {open && (
@@ -1095,6 +1066,7 @@ export function Reader({
           />
         )}
       </div>
+      <AIChat api={api} user={user} initialSessions={[session]} compact/>
     </section>
   );
 }

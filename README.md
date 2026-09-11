@@ -4,9 +4,9 @@
 
 基于当前 cc_transcript_viewer 及其本地导入、分轮加载改动开发，保留上游MIT许可证和解析规则。旧查看器仍可运行；产品使用独立数据目录。
 
-## v1.5 工作台
+## v1.5.1 工作台与 API 聊天
 
-界面采用 Cursor 风格的单侧工作区树、会话标签和中央阅读区。支持工作区折叠、左/右停靠、深浅色切换、代码复制，以及 Ctrl/Cmd K 搜索、Ctrl/Cmd B 收起侧栏。输入区搜索已保存会话，不运行 Agent 任务。
+界面采用 Cursor 风格的单侧工作区树、会话标签和中央阅读区。支持工作区折叠、左/右停靠、深浅色切换、代码复制，以及 Ctrl/Cmd K 搜索、Ctrl/Cmd B 收起侧栏。管理员配置 OpenAI 兼容 API 后，可基于当前会话或通过 `@` 引用其他会话聊天；只生成文字回复，不执行历史工具命令。见 [API 聊天配置](docs/AI_CHAT.md)。
 
 ## 功能
 
@@ -24,7 +24,7 @@
 
 从 [GitHub Releases](https://github.com/QingQ-zijin/cursor-session-hub/releases/latest) 下载 Windows x64、Mac Apple Silicon 或 Mac Intel 安装包。见[安装与首次使用](docs/QUICKSTART.zh-CN.md)和[验收记录](docs/VERIFICATION.md)。
 
-从 0.1.3 起，客户端自动检查正式 Release，左下角版本号也可手动检查。发现新版本后可查看说明并下载对应平台安装包，升级保留本地记录。0.1.2 及更早版本需先手动安装一次。维护者发布流程见[发布与更新检测](docs/RELEASING.md)。
+从 0.1.3 起，客户端自动检查正式 Release，左下角版本号也可手动检查。1.5.1 优先读取静态更新清单，降低匿名 GitHub API 限流的影响。发现新版本后可查看说明并下载对应平台安装包，升级保留本地记录；旧版因限流无法检查时，手动安装一次 1.5.1。维护者发布流程见[发布与更新检测](docs/RELEASING.md)。
 
 在本仓库Actions中手动运行 Build desktop installers，产物为Windows x64安装程序及Mac Apple Silicon/Intel各自的DMG。每个平台先运行冻结解析器检查，再构建和启动桌面应用。
 
