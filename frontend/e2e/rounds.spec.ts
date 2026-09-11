@@ -39,6 +39,7 @@ test('minimal reader, right directory, recoverable annotated trash, folded work 
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();
   await page.keyboard.press('Control+-');await expect(page.locator('html')).toHaveCSS('zoom','1');
   await page.keyboard.press('Control+=');await page.reload();await expect(page.locator('html')).toHaveCSS('zoom','1.1');
+  await expect(page.locator('.round-content')).toHaveCount(3);
   await page.keyboard.press('Control+0');await expect(page.locator('html')).toHaveCSS('zoom','1');
   expect(requests.some(p=>p.includes('/ai/'))).toBeFalsy();await expect(page.getByLabel('同步所选会话')).toHaveCount(1);
   await expect(page.locator('.round-content')).toHaveCount(3);await expect(rail.locator('.rail-round')).toHaveCount(6);await expect(page.locator('.round-content').first()).toHaveAttribute('aria-busy','false');

@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import {BatchProgress,startWorkspaceBatch} from './BatchProgress';
+import {unnamed,batchDestination} from './source-names';
 import {
   X,
   Search,
@@ -108,6 +110,8 @@ export function SourcePicker({
   signal: number;
 }) {
   const [sources, setSources] = useState<Source[]>([]),
+    [destination,setDestination]=useState(batchDestination),
+    [batchSignal,setBatchSignal]=useState(0),
     [workspace, setWorkspace] = useState('__all__'),
     [alternates, setAlternates] = useState(false),
     [workspaces, setWorkspaces] = useState<{project: string; count: number}[]>([]),
@@ -147,6 +151,9 @@ export function SourcePicker({
   useEffect(() => { void loadWorkspaces().catch(onError); }, [signal, alternates]);
   useEffect(() => { void scan(); return () => { generation.current++; }; }, []);
   const filtered = sources;
+  const foldedSource=(s:Source)=>unnamed(s.title)||s.metadata_json?.is_subagent===true||s.metadata_json?.in_sidebar===false||s.source_kind==='cursor_cli';
+  const sourceGroups=[...new Set(filtered.map(s=>s.project||''))].map(project=>({project,items:filtered.filter(s=>(s.project||'')===project)}));
+  async function batch(project:string|null){try{await startWorkspaceBatch(project,destination);setBatchSignal(v=>v+1);onIndexed()}catch(e){onError(e)}}
   async function index() {
     setBusy(true);
     let done = 0;
@@ -216,6 +223,8 @@ export function SourcePicker({
         </button>
       </div>
       <div className="workspace-filter">
+        <label>同步目标 <select aria-label="工作区同步目标" value={destination} onChange={e=>{setDestination(e.target.value as 'local'|'server');localStorage.setItem('csh-batch-destination',e.target.value)}}><option value="local">本地库</option><option value="server">团队服务器</option></select></label>
+        <button className="button" onClick={()=>void batch(null)}>同步全部工作区</button>
         <label>工作区 <select aria-label="选择 Cursor 工作区" value={workspace} onChange={e => {
           generation.current++; setSources([]); setLoading(true); setWorkspace(e.target.value); setPage(0); setCursors(['']);
         }}><option value="__all__">全部工作区</option>{workspaces.map(w => <option key={w.project} value={w.project}>{w.project || '未记录工作区'}（{w.count}）</option>)}</select></label>
@@ -230,8 +239,8 @@ export function SourcePicker({
             <span>{scanning ? '正在发现 Cursor 记录…' : '可刷新发现结果，或导入会话文件。'}</span>
           </div>
         ) : (
-          filtered.map((s, i) => (<Fragment key={s.id}>
-            {(i === 0 || filtered[i-1].project !== s.project) && <h3 className="workspace-group" title={s.project}>{s.project?.split(/[\\/]/).filter(Boolean).pop() || '未记录工作区'}<small>{s.project}</small></h3>}
+          sourceGroups.map(group=><section key={group.project}><div className="source-workspace-heading"><h3 className="workspace-group" title={group.project}>{group.project.split(/[\\/]/).filter(Boolean).pop()||'未记录工作区'}</h3>{group.project&&<button className="text-button" onClick={()=>void batch(group.project)}>同步整个工作区</button>}</div>{[false,true].map(folded=>{
+            const rows=group.items.filter(s=>foldedSource(s)===folded);const content=rows.map(s=>(
             <label key={s.id} className="source-row">
               <input
                 type="checkbox"
@@ -253,10 +262,11 @@ export function SourcePicker({
                 <details><summary>来源信息</summary><small>{s.path}</small><small>ID：{s.native_id}</small></details>
               </span>
               <em>{label(s.status)}</em>
-            </label></Fragment>
-          ))
+            </label>));return folded?rows.length>0&&<details className="unnamed-sources" key="unnamed"><summary>未命名及其他记录（本页 {rows.length} 条）</summary>{content}</details>:<Fragment key="named">{content}</Fragment>
+          })}</section>)
         )}
       </div>
+      <BatchProgress signal={batchSignal} onError={onError}/>
       {(next || page > 0) && (
         <div className="pagination">
           <button disabled={!page} onClick={() => setPage((v) => v - 1)}>
@@ -658,7 +668,9 @@ export function JobsPanel({
   signal,
   onError,
   onNotice,
+  localBatches=false,
 }: {
+  localBatches?:boolean;
   api: Client;
   signal: number;
   onError: (e: unknown) => void;
@@ -701,6 +713,7 @@ export function JobsPanel({
   }
   return (
     <div className="wide-page">
+      {localBatches&&<BatchProgress signal={signal} onError={onError}/>}
       <header className="page-heading">
         <div>
           <h1>同步任务</h1>

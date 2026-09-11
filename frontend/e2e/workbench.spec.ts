@@ -33,11 +33,14 @@ test('Cursor-style workspace tree, tabs, side docking and responsive previews',a
   await expect(page.locator('.session-row:visible')).toHaveCount(3);
   await page.getByRole('button',{name:'research_workspace',exact:true}).click();
   await page.locator('.session-main').filter({hasText:sessions[0].title}).click();
+  await expect(page.locator('.code-frame')).toHaveCount(0);
+  await page.locator('.execution-summary > .disclosure > button').click();
   await expect(page.locator('.code-frame')).toBeVisible();
   await expect(page.locator('.katex')).toHaveCount(1);
   await page.locator('.session-main').filter({hasText:sessions[1].title}).click();
   await expect(page.getByRole('tab')).toHaveCount(2);
   await page.getByRole('tab',{name:sessions[0].title}).click();
+  await page.locator('.execution-summary > .disclosure > button').click();
   await expect(page.getByRole('tab',{name:sessions[0].title})).toHaveAttribute('aria-selected','true');
   await page.screenshot({animations:'disabled',path:path.join(shots,'reader.png')});
   await page.getByRole('button',{name:'将工作区移至右侧'}).click();

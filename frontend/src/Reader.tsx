@@ -1,4 +1,5 @@
 import {Markdown} from "./RichText";
+import {readingGroups} from './reader-model';
 import {Modal} from "./Management";
 import { readContent } from "./content";
 import { Children, isValidElement, useEffect, useRef, useState } from "react";
@@ -238,11 +239,13 @@ function Tool({ block, api }: { block: Record<string, unknown>; api: Client }) {
 function Collapsed({
   label,
   children,
+  initialOpen=false,
 }: {
   label: string;
   children: React.ReactNode;
+  initialOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   return (
     <div className="disclosure">
       <button onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -413,8 +416,7 @@ function RoundEvents({
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [session.id, revision, round.number, api, retry]);
-  const groups: {process:boolean;items:EventRecord[]}[]=[];
-  for(const item of items){const blocks=item.event.blocks as Record<string,unknown>[]|undefined;const process=['tool','reasoning','web_call','web_search','status'].includes(String(item.event.kind))||(item.event.kind==='assistant'&&!!blocks?.length&&blocks.every(b=>['tool_use','thinking'].includes(String(b.type))));const previous=groups.at(-1);if(process&&previous?.process)previous.items.push(item);else groups.push({process,items:[item]})}
+  const groups=loading?[]:readingGroups(items);
   function processLabel(records:EventRecord[]){
     const times=records.map(r=>{const ts=r.event.ts;return typeof ts==='number'?(ts<1e11?ts*1000:ts):typeof ts==='string'?Date.parse(ts):NaN}).filter(Number.isFinite);
     const seconds=times.length>1?Math.floor((Math.max(...times)-Math.min(...times))/1000):0;
@@ -424,7 +426,7 @@ function RoundEvents({
     <div className="round-content" aria-busy={loading}>
       <ErrorText error={error} />
       {error && <button className="text-button" onClick={() => setRetry(v => v + 1)}>重试加载本轮</button>}
-      {groups.map((group) => group.process ? <div className="execution-summary" key={group.items[0].id} title="耗时按原记录时间跨度显示"><Collapsed label={processLabel(group.items)}>{group.items.map(item=><div key={item.id} id={'event-'+item.id}><EventBody event={item.event} api={api}/></div>)}</Collapsed></div> : group.items.map((item) => (
+      {groups.map((group) => group.process ? <div className="execution-summary" key={'process-'+group.items[0].id} title="包含最终回答之前的思考、说明和工具执行"><Collapsed initialOpen={group.items.some(item=>item.id===session.favorite_event_id)} label={processLabel(group.items)}>{group.items.map(item=><div key={item.id} id={'process-event-'+item.id}><EventBody event={item.event} api={api}/></div>)}</Collapsed></div> : group.items.map((item) => (
           <article
             key={item.id}
             id={"event-" + item.id}
@@ -471,6 +473,7 @@ function RoundEvents({
           </article>
         )))}
       {loading && <div className="loading-line" role="status"><Loader2 size={16} className="spin" />正在加载本轮完整对话，已读取 {items.length} 条…</div>}
+      {!loading&&groups.some(g=>g.process)&&!groups.some(g=>!g.process&&g.items.some(i=>i.event.kind==='assistant'))&&<p className="inline-note">本轮未记录执行后的最终回答，可展开过程查看。</p>}
 
     </div>
   );

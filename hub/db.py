@@ -37,6 +37,10 @@ ai_settings = Table('ai_settings', metadata, Column('id', Integer, primary_key=T
 ai_threads = Table('ai_threads', metadata, ident(), Column('owner_id', String(100), nullable=False, index=True), Column('title', Text, nullable=False), timestamp(), timestamp('updated_at'))
 ai_messages = Table('ai_messages', metadata, ident(), Column('thread_id', String(100), nullable=False, index=True), Column('owner_id', String(100), nullable=False), Column('seq', Integer, nullable=False), Column('role', String(20), nullable=False), Column('text', Text, nullable=False, default=''), Column('state', String(20), nullable=False), Column('error', Text), Column('request_id', String(100)), Column('metadata_json', JSON, default=dict), timestamp(), timestamp('updated_at'), UniqueConstraint('thread_id','seq'), UniqueConstraint('thread_id','request_id'))
 round_trash = Table('round_trash', metadata, Column('revision_id', String(100), primary_key=True), Column('number', Integer, primary_key=True), Column('deleted', Boolean, nullable=False, default=True), Column('note', Text, nullable=False, default=''), Column('actor_id', String(100), nullable=False), timestamp('updated_at'))
+source_catalog = Table('source_catalog', metadata, Column('source_id', String(100), primary_key=True), Column('scan_id', String(100), nullable=False, index=True), Column('in_sidebar', Boolean, nullable=False), Column('named', Boolean, nullable=False), Column('is_subagent', Boolean, nullable=False, default=False))
+cursor_projects = Table('cursor_projects', metadata, Column('project', Text, primary_key=True), Column('label', Text, nullable=False), Column('scan_id', String(100), nullable=False), Column('position', Integer, default=0))
+source_batches = Table('source_batches', metadata, ident(), Column('active_slot', Integer, unique=True), Column('destination', String(20), nullable=False), Column('project', Text), Column('state', String(30), nullable=False), Column('scan_job_id', String(100)), Column('child_job_id', String(100)), Column('item_id', String(100)), Column('total', Integer, default=0), Column('completed', Integer, default=0), Column('failed', Integer, default=0), Column('error', Text), Column('remote_json', JSON, default=dict), timestamp(), timestamp('updated_at'))
+batch_items = Table('batch_items', metadata, ident(), Column('batch_id', String(100), nullable=False,index=True), Column('source_id', String(100), nullable=False), Column('state', String(30), nullable=False,default='pending'), Column('error', Text), UniqueConstraint('batch_id','source_id'))
 
 def visible_round(revision_column, number_column):
     return ~select(round_trash.c.number).where(round_trash.c.revision_id == revision_column, round_trash.c.number == number_column, round_trash.c.deleted.is_(True)).exists()
@@ -65,6 +69,8 @@ def init_db(engine):
         if not conn.execute(select(schema_versions.c.version).where(schema_versions.c.version == 3)).first():
             conn.execute(ai_messages.update().where(ai_messages.c.state.in_(('queued','running'))).values(state='cancelled', error='API 聊天功能已移除'))
             conn.execute(schema_versions.insert().values(version=3))
+        if not conn.execute(select(schema_versions.c.version).where(schema_versions.c.version == 4)).first():
+            conn.execute(schema_versions.insert().values(version=4))
         if not conn.execute(select(users.c.id).where(users.c.id == 'local')).first():
             conn.execute(users.insert().values(id='local', username='__local__', display_name='我', role='admin', active=True))
 

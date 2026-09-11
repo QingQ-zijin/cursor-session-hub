@@ -125,6 +125,8 @@ def create_app(config: Config | None = None):
         migrate_legacy(config,engine)
     admission_lock = threading.RLock()
     engine._csh_admission_lock = admission_lock
+    from .batches import Controller, router as batch_router
+    batch_controller = Controller(config,engine,admission_lock,enqueue) if config.mode=='local' else None
     login_attempts = {}
 
     @asynccontextmanager
@@ -133,14 +135,16 @@ def create_app(config: Config | None = None):
         if not config.worker_external:
             from .worker import start_worker
             worker = start_worker(config)
+            if batch_controller:batch_controller.start()
         yield
+        if batch_controller:batch_controller.close()
         if worker and hasattr(worker, 'stop'):
             worker.stop()
             if hasattr(worker, 'join'):
                 await asyncio.to_thread(worker.join,10)
         engine.dispose()
 
-    app = FastAPI(title='Cursor Session Hub', version='1.5.2', lifespan=lifespan)
+    app = FastAPI(title='Cursor Session Hub', version='1.5.3', lifespan=lifespan)
     # Register before the HTTP decorator below so this sits directly around
     # routing. Receive-limit exceptions then reach FastAPI without being
     # wrapped in BaseHTTPMiddleware's request-relay task groups.
@@ -148,6 +152,7 @@ def create_app(config: Config | None = None):
     app.add_middleware(StreamBodyLimitMiddleware,config=config)
     app.state.config = config
     app.state.engine = engine
+    app.state.batch_controller = batch_controller
     @app.exception_handler(RequestValidationError)
     async def validation_error(request,exc):
         details=[]
@@ -603,8 +608,27 @@ def create_app(config: Config | None = None):
     def scan_sources(user=Depends(require_user)):
         local_only()
         with admission_lock,engine.begin() as conn:
+            active_batch=conn.execute(select(db.source_batches).where(db.source_batches.c.state.in_(('planning','active','indexing','syncing','paused')))).mappings().first()
+            if active_batch:
+                scan=conn.execute(select(db.jobs).where(db.jobs.c.id==active_batch['scan_job_id'])).mappings().first()
+                if scan:return {'job':job_public(scan)}
             existing=conn.execute(select(db.jobs).where(db.jobs.c.kind=='scan',db.jobs.c.state.in_(ACTIVE_JOBS))).mappings().first()
             return {'job':job_public(existing or enqueue(conn,config,user['id'],'scan'))}
+
+    @router.get('/sources/sidebar-workspaces')
+    def sidebar_workspaces(user=Depends(require_user)):
+        local_only()
+        with engine.connect() as conn:
+            job=conn.execute(select(db.jobs.c.result_json).where(db.jobs.c.kind=='scan',db.jobs.c.state=='succeeded').order_by(db.jobs.c.updated_at.desc()).limit(1)).scalar()
+            scan_id=(job or {}).get('scan_id')
+            rows=conn.execute(select(db.cursor_projects).where(db.cursor_projects.c.scan_id==scan_id).order_by(db.cursor_projects.c.position).limit(100)).mappings().all()
+            items=[]
+            for row in rows:
+                count=conn.execute(select(func.count(func.distinct(db.sources.c.native_id))).select_from(db.sources).join(db.source_catalog,db.source_catalog.c.source_id==db.sources.c.id).where(db.sources.c.project==row['project'],db.source_catalog.c.scan_id==scan_id,db.source_catalog.c.in_sidebar.is_(True),db.source_catalog.c.named.is_(True))).scalar_one()
+                items.append({'project':row['project'],'label':row['label'],'count':count})
+            return {'items':items}
+
+    if batch_controller:router.include_router(batch_router(config,engine,require_user,local_only,batch_controller))
 
     @router.post('/sources/{ident}/index')
     def index_source(ident:str,user=Depends(require_user)):

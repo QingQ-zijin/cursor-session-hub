@@ -781,6 +781,14 @@ def index_events(config, job_id, iterator, *, revision_id=None, source_base=None
                             values['title'] = derived
                         if not original_title or original_title == native_title:
                             values['original_title'] = derived
+            if config.mode=='local' and session['source_id']:
+                source=conn.execute(select(db.sources).where(db.sources.c.id==session['source_id'])).mappings().first()
+                if source and (source['metadata_json'] or {}).get('in_sidebar'):
+                    # Sidebar membership is authoritative; a worktree/repository hint
+                    # inside a transcript may point at a different folder.
+                    values['project']=source['project']
+                    values['original_title']=source['title']
+                    if not (session['metadata_json'] or {}).get('custom_title'):values['title']=source['title']
             if session['sync_status'] == 'synced':
                 values['sync_status'] = 'update_pending'
             conn.execute(db.sessions.update().where(db.sessions.c.id == job['session_id']).values(**values))

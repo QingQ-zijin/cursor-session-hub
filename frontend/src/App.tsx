@@ -56,6 +56,8 @@ import type {
 } from "./types";
 import { displayDate, label, sessionStatus } from "./utils";
 import { Reader } from "./Reader";
+import {startWorkspaceBatch} from './BatchProgress';
+import {unnamed,batchDestination} from './source-names';
 import { Titlebar, PreviewHome, PaneButton, BootChrome } from "./Workbench";
 import { Updates } from "./Updates";
 import {
@@ -86,6 +88,7 @@ export default function App() {
     [dockRight, setDockRight] = useState(localStorage.getItem('csh-dock-right') === 'true'),
     [tabs, setTabs] = useState<Session[]>([]),
     [collapsed, setCollapsed] = useState<Set<string>>(new Set()),
+    [cursorWorkspaces,setCursorWorkspaces]=useState<{project:string;label:string;count:number}[]>([]),
     [scope, setScope] = useState<"local" | "team">(initialScope),
     [bootError, setBootError] = useState(""),
     [ready, setReady] = useState(false),
@@ -153,6 +156,7 @@ export default function App() {
   const team = scope === "team" || !local;
   const api = useMemo(() => client(!!local && team), [local, team]);
   const activeUser = local ? (team ? remoteMe : localUser) : me;
+  useEffect(()=>{let live=true;if(local&&!team)void request<{items:{project:string;label:string;count:number}[]}>('/sources/sidebar-workspaces').then(p=>{if(live)setCursorWorkspaces(p.items||[])}).catch(()=>{});else setCursorWorkspaces([]);return()=>{live=false}},[local,team,jobSignal,refreshSignal]);
   const generation = viewGeneration.current;
   const scopedError = (error: unknown) => {
     if (generation === viewGeneration.current) onError(error);
@@ -469,9 +473,10 @@ export default function App() {
   const projects = [
     ...new Set(sessions.map((s) => s.project).filter(Boolean)),
   ] as string[];
+  function groupKey(s:Session){return (unnamed(s.title)?'__unnamed__':'')+(s.project||'')}
   const workspaceSessions = new Map<string, Session[]>();
   for (const session of sessions) {
-    const key = session.project || '';
+    const key = groupKey(session);
     if (!workspaceSessions.has(key)) workspaceSessions.set(key, []);
     workspaceSessions.get(key)!.push(session);
   }
@@ -487,6 +492,7 @@ export default function App() {
             ? "同步任务"
             : "成员管理";
   const selectionItems = sessions.filter((s) => selection.has(s.id));
+  async function syncWorkspace(project:string|null){try{await startWorkspaceBatch(project,batchDestination());notify('工作区批次已创建，按顺序处理');setSourceOpen(true)}catch(e){onError(e)}}
   function focusSearch(value?: string) {
     if (nav === 'jobs' || nav === 'admin') navigate(team ? 'team' : 'local');
     if (value !== undefined) setSearch(value);
@@ -554,6 +560,7 @@ export default function App() {
                   </button>
                 )}
               </header>
+              {local&&!team&&<button className="sync-all-workspaces" aria-label="同步 Cursor 全部工作区" onClick={()=>void syncWorkspace(null)}><Cloud size={14}/>同步全部工作区</button>}
               {local && !team && nav !== "favorites" && (
                 <div className="import-actions">
                   <button
@@ -697,6 +704,7 @@ export default function App() {
                 </div>
               )}
               <div className="session-list" aria-busy={busy}>
+                {!busy&&cursorWorkspaces.filter(w=>w.count===0&&!sessions.some(s=>s.project===w.project)).map(w=><div className="empty-cursor-workspace" key={w.project}><Folder size={16}/><span>{w.label||w.project.split(/[\\/]/).pop()}</span><small>No agents yet</small></div>)}
                 {busy ? (
                   <div className="loading-line" role="status">
                     <Loader2 size={17} className="spin" />
@@ -740,13 +748,13 @@ export default function App() {
                   </div>
                 ) : (
                   visibleSessions.map((s, i) => (<Fragment key={s.id}>
-                    {(i === 0 || visibleSessions[i-1].project !== s.project) && <button className="workspace-group repo-heading" title={s.project || '未记录工作区'} aria-expanded={!collapsed.has(s.project || '')} onClick={() => setCollapsed(old => { const next = new Set(old); const key = s.project || ''; if (next.has(key)) next.delete(key); else next.add(key); return next; })}>{collapsed.has(s.project || '') ? <Folder size={17}/> : <FolderOpen size={17}/>}<span>{s.project?.split(/[\\/]/).filter(Boolean).pop() || '未记录工作区'}</span></button>}
+                    {(i === 0 || groupKey(visibleSessions[i-1]) !== groupKey(s)) && <div className="repo-group-header"><button className="workspace-group repo-heading" title={s.project || '未记录工作区'} aria-expanded={unnamed(s.title)?collapsed.has(groupKey(s)):!collapsed.has(groupKey(s))} onClick={() => setCollapsed(old => { const next = new Set(old); const key = groupKey(s); if (next.has(key)) next.delete(key); else next.add(key); return next; })}><Folder size={17}/><span>{unnamed(s.title)?'未命名记录 · ':''}{s.project?.split(/[\\/]/).filter(Boolean).pop() || '未记录工作区'}</span></button>{local&&!team&&s.project&&!unnamed(s.title)&&<button className="workspace-sync" aria-label={'同步工作区 '+s.project} title="同步整个 Cursor 工作区" onClick={()=>void syncWorkspace(s.project!)}><Cloud size={13}/></button>}</div>}
                     <div
                       className={
                         "session-row " + (selected?.id === s.id ? "active" : "")
                       }
                       key={s.id}
-                      hidden={collapsed.has(s.project || "")}
+                      hidden={unnamed(s.title)?!collapsed.has(groupKey(s)):collapsed.has(groupKey(s))}
                     >
                       <label className="session-check">
                         <input
@@ -906,6 +914,7 @@ export default function App() {
           />
         ) : nav === "jobs" ? (
           <JobsPanel
+            localBatches={!!local&&!team}
             api={api}
             signal={jobSignal}
             onError={onError}

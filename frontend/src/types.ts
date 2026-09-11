@@ -38,6 +38,7 @@ export type Session = {
   favorite_seq?: number;
 };
 export type Source = {
+  metadata_json?:{in_sidebar?:boolean;is_subagent?:boolean};
   native_id?: string;
   id: string;
   title: string;
