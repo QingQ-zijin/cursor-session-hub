@@ -57,4 +57,6 @@ PDF 按页提取文字，不将 PDF 原文冒充为 Cursor 对话。扫描页没
 
 ## v1.5 工作台
 
-侧栏 Repositories 按工作区展示会话，点击文件夹可折叠。点击会话进入预览，顶部标签可切换已打开的记录。右上角侧栏图标可将工作区移至另一侧。Customize 可调整深浅色和停靠位置。Ctrl/Cmd K 搜索，Ctrl/Cmd B 收起侧栏。New Preview 返回预览首页，中央输入框用于搜索已保存会话。This PC / Team 切换本地和团队数据，Sync tasks 查看同步、解析和导出任务。
+侧栏 Repositories 按工作区展示会话，点击文件夹可折叠。点击会话进入预览，顶部标签可切换已打开的记录。右上角侧栏图标可将工作区移至另一侧。Customize 可调整深浅色和停靠位置。Ctrl/Cmd K 搜索，Ctrl/Cmd B 收起侧栏。New Chat 返回首页，可输入问题或使用 `@` 引用会话。This PC / Team 切换本地和团队数据，Sync tasks 查看同步、解析和导出任务。
+
+管理员在聊天框齿轮或成员管理中的「团队 API 设置」配置 Base URL、API Key 和模型，再启用聊天。本地与团队 API 配置独立。当前会话默认作为引用；长历史按预算选取片段，原始记录不会被改写。详见 [API 聊天](AI_CHAT.md)。

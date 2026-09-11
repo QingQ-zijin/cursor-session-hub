@@ -77,7 +77,7 @@ python scripts/verify_cloud_flow.py 使用独立测试账户和合成记录，�
 
 首次安装迁移原查看器Downloads目录中的.local/imports与自定义标题，仅入本地库，不自动上传；保留旧ID和路径别名。
 
-CSH_HOME可指定独立数据目录。CSH_MIN_FREE_BYTES默认5GiB、CSH_MIN_FREE_RATIO默认10%；空间不足停止新上传。测试可显式降低阈值，不改变生产默认值。凭证只保存在操作系统凭证管理器。
+CSH_HOME可指定独立数据目录。CSH_MIN_FREE_BYTES默认5GiB、CSH_MIN_FREE_RATIO默认10%；空间不足停止新上传。测试可显式降低阈值，不改变生产默认值。桌面团队登录凭证保存在操作系统凭证管理器；模型 API 密钥的加密和备份方式见 [API 聊天](docs/AI_CHAT.md)。
 
 ## 验证
 
