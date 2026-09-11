@@ -85,3 +85,10 @@ def test_server_batch_pins_account_and_chains_index_then_sync(tmp_path,monkeypat
             assert sync['payload_json']['remote_user_id']=='team-member' and sync['payload_json']['device_id']=='test-device'
             assert sync['payload_json']['revision_id']=='test-revision'
         assert 'synthetic-token' not in c.get('/api/v1/source-batches',headers=h).text
+        with app.state.engine.begin() as conn:conn.execute(db.jobs.update().where(db.jobs.c.id==sync['id']).values(state='failed',error='connection lost',checkpoint_json={'upload_id':'existing-upload','bundle_ready':True}))
+        app.state.batch_controller.tick();app.state.batch_controller.tick()
+        ident=response.json()['id'];assert c.patch('/api/v1/source-batches/'+ident,headers=h,json={'action':'retry'}).status_code==200
+        app.state.batch_controller.tick()
+        with app.state.engine.connect() as conn:
+            batch=conn.execute(select(db.source_batches).where(db.source_batches.c.id==ident)).mappings().one();assert batch['child_job_id']==sync['id'] and batch['state']=='syncing'
+            checkpoint=conn.execute(select(db.jobs.c.checkpoint_json).where(db.jobs.c.id==sync['id'])).scalar_one();assert checkpoint['upload_id']=='existing-upload'

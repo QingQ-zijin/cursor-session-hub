@@ -59,6 +59,7 @@ class Controller:
                     job=self.enqueue(conn,self.config,'local','sync',sid,{'session_id':sid,'revision_id':source['current_revision'],'server_url':saved['url'],'device_id':saved['device_id'],'remote_user_id':saved['user_id'],'sync_id':sync_id,'excluded_asset_ids':[]})
                     conn.execute(db.syncs.insert().values(id=sync_id,owner_id='local',device_id=saved['device_id'],session_id=sid,job_id=job['id'],state='queued'))
                     conn.execute(db.sessions.update().where(db.sessions.c.id==sid).values(sync_status='pending'))
+                    conn.execute(db.batch_items.update().where(db.batch_items.c.id==batch['item_id']).values(job_id=job['id']))
                     change(state='syncing',child_job_id=job['id']);return
                 failed=child['state']!='succeeded'
                 conn.execute(db.batch_items.update().where(db.batch_items.c.id==batch['item_id']).values(state='failed' if failed else 'succeeded',error=child['error'] if failed else None))
@@ -66,11 +67,16 @@ class Controller:
             item=conn.execute(select(db.batch_items).where(db.batch_items.c.batch_id==batch['id'],db.batch_items.c.state=='pending').order_by(db.batch_items.c.id).limit(1)).mappings().first()
             if not item:change(state='completed_with_errors' if batch['failed'] else 'succeeded');return
             if conn.execute(select(func.count()).select_from(db.jobs).where(db.jobs.c.state.in_(('queued','running','paused')))).scalar_one()>=self.config.max_user_queue:return
+            previous=conn.execute(select(db.jobs).where(db.jobs.c.id==item['job_id'])).mappings().first() if item['job_id'] else None
+            if previous and previous['state']=='failed':
+                conn.execute(db.jobs.update().where(db.jobs.c.id==previous['id']).values(state='queued',cancel_requested=False,lease_until=None,error=None))
+                conn.execute(db.batch_items.update().where(db.batch_items.c.id==item['id']).values(state='processing',error=None))
+                change(state='syncing' if previous['kind']=='sync' else 'indexing',item_id=item['id'],child_job_id=previous['id']);return
             source=conn.execute(select(db.sources).where(db.sources.c.id==item['source_id'])).mappings().first()
             if not source:
                 conn.execute(db.batch_items.update().where(db.batch_items.c.id==item['id']).values(state='failed',error='来源不存在'));change(completed=batch['completed']+1,failed=batch['failed']+1);return
             job=queue_index(conn,self.config,source,self.enqueue)
-            conn.execute(db.batch_items.update().where(db.batch_items.c.id==item['id']).values(state='processing'))
+            conn.execute(db.batch_items.update().where(db.batch_items.c.id==item['id']).values(state='processing',job_id=job['id']))
             change(state='indexing',item_id=item['id'],child_job_id=job['id'])
 
 class Start(BaseModel):
