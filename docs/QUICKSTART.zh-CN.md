@@ -1,8 +1,8 @@
-# Cursor Session Hub v1.5.3
+# Cursor Session Hub v1.5.5
 
 无需安装 Python、Node.js 或 Rust。先使用离线本地库；准备好服务器后，再登录团队空间，手动同步选定记录。
 
-下载：[Release v1.5.0](https://github.com/QingQ-zijin/cursor-session-hub/releases/tag/v1.5.0)。
+下载：[Release v1.5.5](https://github.com/QingQ-zijin/cursor-session-hub/releases/tag/v1.5.5)。
 
 ## 选择安装包
 
