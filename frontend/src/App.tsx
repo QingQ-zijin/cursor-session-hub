@@ -1,6 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
+  Folder,
+  FolderPlus,
+  PanelLeft,
+  Send,
+  Settings,
   ArrowUpRight,
   Bookmark,
   Check,
@@ -50,6 +55,7 @@ import type {
 } from "./types";
 import { displayDate, label, sessionStatus } from "./utils";
 import { Reader } from "./Reader";
+import { Titlebar, PreviewHome, PaneButton, BootChrome } from "./Workbench";
 import { Updates } from "./Updates";
 import {
   AdminPanel,
@@ -74,6 +80,11 @@ export default function App() {
     [me, setMe] = useState<User | null>(null),
     [remoteMe, setRemoteMe] = useState<User | null>(null),
     [nav, setNav] = useState<Nav>(initialScope),
+    [searchOpen, setSearchOpen] = useState(false),
+    [sideVisible, setSideVisible] = useState(true),
+    [dockRight, setDockRight] = useState(localStorage.getItem('csh-dock-right') === 'true'),
+    [tabs, setTabs] = useState<Session[]>([]),
+    [collapsed, setCollapsed] = useState<Set<string>>(new Set()),
     [scope, setScope] = useState<"local" | "team">(initialScope),
     [bootError, setBootError] = useState(""),
     [ready, setReady] = useState(false),
@@ -106,8 +117,10 @@ export default function App() {
     [live, setLive] = useState(false),
     [mobileNav, setMobileNav] = useState(false),
     [help, setHelp] = useState(false),
+    [preferences, setPreferences] = useState(false),
     [revoke, setRevoke] = useState<Session | null>(null),
     [favorites, setFavorites] = useState<Favorite[]>([]);
+  const searchInput = useRef<HTMLInputElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null),
     viewGeneration = useRef(0),
     selectionGeneration = useRef(0),
@@ -296,6 +309,7 @@ export default function App() {
           if (valid && generation === viewGeneration.current && ticket === selectionGeneration.current) {
             initialSession.current = null;
             setSelected(s);
+            setTabs([s]);
             historyReplace(s.id);
           }
         })
@@ -311,18 +325,20 @@ export default function App() {
     return () => { valid = false; };
   }, [ready, activeUser?.id, api]);
   function navigate(nextNav: Nav) {
+    setTabs([]);
+    setCollapsed(new Set());
     viewGeneration.current++;
     selectionGeneration.current++;
     initialSession.current = null;
     selectedRef.current = null;
     historyReplace();
     setNotice(null);
-    setSessions([]);
+    if (["local","team","favorites"].includes(nextNav)) setSessions([]);
     setNext(null);
     setFavorites([]);
     setMembers([]);
     setListError("");
-    setBusy(true);
+    setBusy(["local","team","favorites"].includes(nextNav));
     setLive(false);
     setRevoke(null);
     setSourceOpen(false);
@@ -342,6 +358,9 @@ export default function App() {
     setHasUpdates(false);
   }
   function openSession(s: Session) {
+    setTabs(old => old.some(t=>t.id===s.id) ? old.map(t=>t.id===s.id?s:t) : [...old,s].slice(-6));
+    if (nav === "jobs" || nav === "admin") setNav(team ? "team" : "local");
+    setMobileNav(false);
     initialSession.current = null;
     const ticket = ++selectionGeneration.current;
     if (nav === "favorites") {
@@ -454,7 +473,7 @@ export default function App() {
     if (!workspaceSessions.has(key)) workspaceSessions.set(key, []);
     workspaceSessions.get(key)!.push(session);
   }
-  const visibleSessions = local && !team ? [...workspaceSessions.values()].flat() : sessions;
+  const visibleSessions = [...workspaceSessions.values()].flat();
   const title =
     nav === "local"
       ? "本地记录"
@@ -466,168 +485,38 @@ export default function App() {
             ? "同步任务"
             : "成员管理";
   const selectionItems = sessions.filter((s) => selection.has(s.id));
-  if (!ready)
-    return (
-      <div className="boot-screen">
-        <div className="brand-symbol">H</div>
-        <h1>Cursor Session Hub</h1>
-        <p>
-          <Loader2 className="spin" size={17} />
-          正在连接本地服务…
-        </p>
-      </div>
-    );
-  if (bootError)
-    return (
-      <div className="boot-screen">
-        <div className="brand-symbol">H</div>
-        <h1>暂时无法连接服务</h1>
-        <p className="inline-error">{bootError}</p>
-        <button className="button primary" onClick={() => location.reload()}>
-          重新连接
-        </button>
-      </div>
-    );
-  return (
-    <div className={"app " + (selected ? "has-reader" : "")}>
-      <aside className={"sidebar " + (mobileNav ? "mobile-open" : "")}>
-        <a
-          className="brand"
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate(local ? "local" : "team");
-          }}
-        >
-          <div className="brand-symbol">H</div>
-          <span>
-            Session Hub<small>CURSOR WORKSPACE</small>
-          </span>
-        </a>
-        <div className="workspace-label">工作空间</div>
-        <nav aria-label="主导航">
-          {local && (
-            <button
-              className={nav === "local" ? "selected" : ""}
-              onClick={() => navigate("local")}
-            >
-              <Laptop size={17} />
-              <span>本地记录</span>
-            </button>
-          )}
-          <button
-            className={nav === "team" ? "selected" : ""}
-            onClick={() => navigate("team")}
-          >
-            <Users size={17} />
-            <span>团队空间</span>
-            {remoteMe && local && <i className="connected-dot" />}
-          </button>
-          <button
-            className={nav === "favorites" ? "selected" : ""}
-            onClick={() => navigate("favorites")}
-          >
-            <Bookmark size={17} />
-            <span>我的收藏</span>
-          </button>
-          <button
-            className={nav === "jobs" ? "selected" : ""}
-            onClick={() => navigate("jobs")}
-          >
-            <RefreshCw size={17} />
-            <span>同步任务</span>
-            {hasUpdates && <i className="nav-dot" />}
-          </button>
-          {activeUser?.role === "admin" && team && (
-            <button
-              className={nav === "admin" ? "selected" : ""}
-              onClick={() => navigate("admin")}
-            >
-              <Settings2 size={17} />
-              <span>成员管理</span>
-            </button>
-          )}
-        </nav>
-        <div className="sidebar-space" />
-        <div className="sidebar-context">
-          <span className={"connection-state " + (live ? "live" : "")}>
-            <i />
-            {team ? "团队服务器" : "离线本地库"}
-          </span>
-          <small>
-            {team
-              ? remoteMe?.display_name || me?.display_name || "等待登录"
-              : "记录保存在这台电脑"}
-          </small>
-        </div>
-        <div className="sidebar-footer">
-          <button
-            aria-label="切换深浅色主题"
-            title={theme === "light" ? "切换深色模式" : "切换浅色模式"}
-            onClick={() => setTheme((v) => (v === "light" ? "dark" : "light"))}
-          >
-            {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
-          </button>
-          <button
-            aria-label="使用说明"
-            title="使用说明"
-            onClick={() => setHelp(true)}
-          >
-            <CircleHelp size={17} />
-          </button>
-          {team && activeUser && (
-            <button
-              aria-label="退出团队账号"
-              title="退出登录"
-              onClick={() => void logout()}
-            >
-              <LogOut size={17} />
-            </button>
-          )}
-          <Updates local={!!local} />
-        </div>
-      </aside>
-      <main className="workspace">
-        <div className="mobile-top">
-          <button
-            className="icon-button"
-            aria-label="展开主菜单"
-            onClick={() => setMobileNav(!mobileNav)}
-          >
-            <Menu size={20} />
-          </button>
-          <strong>Session Hub</strong>
-          <span>{title}</span>
-        </div>
-        {team && !activeUser ? (
-          <Login
-            local={!!local}
-            initialToken={inviteToken}
-            onSuccess={(u) => {
-              if (local) setRemoteMe(u);
-              else setMe(u);
-              refresh();
-            }}
-            onError={onError}
-          />
-        ) : nav === "jobs" ? (
-          <JobsPanel
-            api={api}
-            signal={jobSignal}
-            onError={onError}
-            onNotice={notify}
-          />
-        ) : nav === "admin" && activeUser?.role === 'admin' ? (
-          <AdminPanel
-            api={api}
-            user={activeUser}
-            onError={onError}
-            onNotice={notify}
-          />
-        ) : (
-          <div className="session-workspace">
+  function focusSearch(value?: string) {
+    if (nav === 'jobs' || nav === 'admin') navigate(team ? 'team' : 'local');
+    if (value !== undefined) setSearch(value);
+    setSearchOpen(true); setSideVisible(true); if(window.innerWidth <= 760) setMobileNav(true);
+    setTimeout(() => searchInput.current?.focus(), 0);
+  }
+  function toggleSidebar() {
+    if (window.innerWidth <= 760) setMobileNav(value => !value);
+    else setSideVisible(value => !value);
+  }
+  function switchDock() {
+    setDockRight(value => { localStorage.setItem('csh-dock-right', String(!value)); return !value; });
+    setSideVisible(true);
+  }
+  function closeTab(id: string) {
+    const remaining = tabs.filter(tab => tab.id !== id); setTabs(remaining);
+    if (selected?.id === id) {
+      selectionGeneration.current++; const next = remaining.at(-1) || null;
+      setSelected(next); historyReplace(next?.id);
+    }
+  }
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      if (event.key.toLowerCase() === 'k') { event.preventDefault(); focusSearch(); }
+      if (event.key.toLowerCase() === 'b') { event.preventDefault(); toggleSidebar(); }
+    };
+    document.addEventListener('keydown', key); return () => document.removeEventListener('keydown', key);
+  }, [nav, team]);
+  const indexPanel = (
             <section
-              className="session-index"
+              className={"session-index " + (searchOpen ? "search-open " : "") + (filterOpen ? "filters-open" : "")}
               onDragOver={(e) => {
                 if (local && !team) e.preventDefault();
               }}
@@ -641,7 +530,7 @@ export default function App() {
             >
               <header className="index-heading">
                 <div>
-                  <h1>{title}</h1>
+                  <h1 aria-label={nav==='jobs'||nav==='admin' ? '工作区会话' : title}>Repositories</h1>
                   <p>
                     {nav === "favorites"
                       ? team
@@ -652,14 +541,15 @@ export default function App() {
                         : "这台电脑上的 Cursor 会话"}
                   </p>
                 </div>
+                <button className="icon-button repo-filter" aria-label="筛选工作区列表" title="筛选工作区列表" onClick={()=>setFilterOpen(v=>!v)}><SlidersHorizontal size={16}/></button>
                 {local && !team && (
                   <button
                     className="icon-button add-source"
-                    aria-label="从 Cursor 发现记录"
+                    aria-label="本机记录"
                     title="从 Cursor 发现记录"
                     onClick={() => setSourceOpen(true)}
                   >
-                    <Plus size={20} />
+                    <FolderPlus size={18} />
                   </button>
                 )}
               </header>
@@ -700,6 +590,7 @@ export default function App() {
                 <div className="search-field">
                   <Search size={16} />
                   <input
+                    ref={searchInput}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="搜索会话与正文"
@@ -880,12 +771,13 @@ export default function App() {
                   </div>
                 ) : (
                   visibleSessions.map((s, i) => (<Fragment key={s.id}>
-                    {local && !team && (i === 0 || visibleSessions[i-1].project !== s.project) && <h3 className="workspace-group" title={s.project}>{s.project?.split(/[\\/]/).filter(Boolean).pop() || '未记录工作区'}</h3>}
+                    {(i === 0 || visibleSessions[i-1].project !== s.project) && <button className="workspace-group repo-heading" title={s.project || '未记录工作区'} aria-expanded={!collapsed.has(s.project || '')} onClick={() => setCollapsed(old => { const next = new Set(old); const key = s.project || ''; if (next.has(key)) next.delete(key); else next.add(key); return next; })}>{collapsed.has(s.project || '') ? <Folder size={17}/> : <FolderOpen size={17}/>}<span>{s.project?.split(/[\\/]/).filter(Boolean).pop() || '未记录工作区'}</span></button>}
                     <div
                       className={
                         "session-row " + (selected?.id === s.id ? "active" : "")
                       }
                       key={s.id}
+                      hidden={collapsed.has(s.project || "")}
                     >
                       <label className="session-check">
                         <input
@@ -920,7 +812,7 @@ export default function App() {
                         </span>
                         <strong>{s.title || "未命名会话"}</strong>
                         <span className="session-meta">
-                          <span>{displayDate(s.updated_at)}</span>
+                          <span title={displayDate(s.updated_at)}>{Math.max(0, Math.floor((Date.now()/1000 - (s.updated_at || Date.now()/1000))/86400))}d</span>
                           <span>{s.round_count || 0} 轮</span>
                           <span className={"status-dot " + sessionStatus(s)}>
                             {label(sessionStatus(s))}
@@ -1001,6 +893,82 @@ export default function App() {
                 </button>
               </div>
             </section>
+  );
+  if (!ready)
+    return (
+      <div className="boot-screen">
+        <BootChrome/>
+        <div className="brand-symbol">H</div>
+        <h1>Cursor Session Hub</h1>
+        <p>
+          <Loader2 className="spin" size={17} />
+          正在连接本地服务…
+        </p>
+      </div>
+    );
+  if (bootError)
+    return (
+      <div className="boot-screen">
+        <BootChrome/>
+        <div className="brand-symbol">H</div>
+        <h1>暂时无法连接服务</h1>
+        <p className="inline-error">{bootError}</p>
+        <button className="button primary" onClick={() => location.reload()}>
+          重新连接
+        </button>
+      </div>
+    );
+  return (
+    <div className={"app cursor-shell " + (selected ? "has-reader " : "") + (dockRight ? "dock-right " : "") + (!sideVisible ? "side-hidden" : "")}>
+      <Titlebar toggle={toggleSidebar} dock={dockRight} onDock={switchDock} onImport={local&&!team ? () => void chooseImport() : undefined} onSearch={() => focusSearch()} onHelp={() => setHelp(true)} onTheme={() => setTheme(value => value === 'light' ? 'dark' : 'light')}/>
+      <aside className={"sidebar " + (mobileNav ? "mobile-open" : "")}>
+        <div className="side-top"><button className="icon-button" aria-label="收起工作区侧栏" onClick={toggleSidebar}><PanelLeft size={17}/></button><span/><button className="icon-button" aria-label="返回预览首页" onClick={() => {selectionGeneration.current++;initialSession.current=null;setSelected(null);historyReplace();}}><ChevronLeft size={18}/></button><button className="icon-button" aria-label="打开最近会话" disabled={!tabs.length} onClick={() => {const last=tabs.at(-1);if(last)openSession(last);}}><ChevronRight size={18}/></button></div>
+        <nav aria-label="主导航">
+          <button className={!selected && ['local','team'].includes(nav) ? 'selected' : ''} onClick={() => navigate(team ? 'team' : 'local')}><Send size={18}/><span>New Preview</span></button>
+          <button onClick={() => focusSearch()}><Search size={18}/><span>Search</span></button>
+          <button className={nav==='jobs'?'selected':''} aria-label="同步任务" onClick={() => navigate('jobs')}><RefreshCw size={18}/><span>Sync tasks</span>{hasUpdates&&<i className="nav-dot"/>}</button>
+          <button aria-label="自定义工作台" onClick={() => setPreferences(true)}><SlidersHorizontal size={18}/><span>Customize</span></button>
+        </nav>
+        <div className="sidebar-library">{activeUser && indexPanel}</div>
+        <div className="sidebar-account">
+          <div className="scope-switch" aria-label="记录位置">{local&&<button className={!team?'active':''} aria-label="本地记录" onClick={() => navigate('local')}><Laptop size={15}/>This PC</button>}<button className={team?'active':''} aria-label="团队空间" onClick={() => navigate('team')}><Users size={15}/>Team</button><button title="我的收藏" aria-label="我的收藏" onClick={() => navigate('favorites')}><Bookmark size={15}/></button></div>
+          <div className="account-row"><span className="account-avatar">{activeUser?.display_name?.slice(0,1)||'H'}</span><span>{team ? activeUser?.display_name || '登录团队空间' : 'Local workspace'}<small>{team ? 'Team server' : 'Session Hub'}</small></span><button className="icon-button" aria-label={team&&activeUser?.role==='admin'?'成员管理':'切换深浅色主题'} onClick={() => team&&activeUser?.role==='admin' ? navigate('admin') : setTheme(v=>v==='light'?'dark':'light')}><Settings size={17}/></button>{team&&activeUser&&<button className="icon-button" aria-label="退出团队账号" title="退出登录" onClick={()=>void logout()}><LogOut size={15}/></button>}</div>
+          <div className="sidebar-footer"><span className="connection-state"><i/>{team?'团队服务器':'离线本地库'}</span><Updates local={!!local}/></div>
+        </div>
+      </aside>
+      {mobileNav&&<button className="sidebar-scrim" aria-label="关闭侧栏" onClick={()=>setMobileNav(false)}/>}
+      <main className="workspace">
+        <div className="workbench-toolbar"><button className="icon-button" aria-label="展开主菜单" onClick={toggleSidebar}><PanelLeft size={17}/></button><span className="workbench-location">{team ? 'Team' : 'This PC'}</span><span className="toolbar-space"/><button className="focus-toggle" onClick={toggleSidebar}>Preview <ArrowUpRight size={13}/></button><button className="icon-button" aria-label="工作台说明" onClick={()=>setHelp(true)}><MoreHorizontal size={18}/></button><PaneButton right={dockRight} onClick={switchDock}/></div>
+        {team && !activeUser ? (
+          <Login
+            local={!!local}
+            initialToken={inviteToken}
+            onSuccess={(u) => {
+              if (local) setRemoteMe(u);
+              else setMe(u);
+              refresh();
+            }}
+            onError={onError}
+          />
+        ) : nav === "jobs" ? (
+          <JobsPanel
+            api={api}
+            signal={jobSignal}
+            onError={onError}
+            onNotice={notify}
+          />
+        ) : nav === "admin" && activeUser?.role === 'admin' ? (
+          <AdminPanel
+            api={api}
+            user={activeUser}
+            onError={onError}
+            onNotice={notify}
+          />
+        ) : (
+          <div className="session-workspace">
+            {tabs.length>0&&<div className="preview-tabs" role="tablist" aria-label="已打开会话">{tabs.map(tab=><div className={"preview-tab "+(selected?.id===tab.id?'active':'')} key={tab.id}><button role="tab" aria-selected={selected?.id===tab.id} onClick={()=>openSession(tab)} title={tab.title}><FilePlus2 size={13}/><span>{tab.title}</span></button><button aria-label={'关闭标签 '+tab.title} onClick={()=>closeTab(tab.id)}><X size={13}/></button></div>)}</div>}
+
+
             {selected && activeUser ? (
               <Reader
                 key={
@@ -1024,29 +992,8 @@ export default function App() {
                 versionSignal={versionSignal}
               />
             ) : (
-              <section className="reader-empty">
-                <div className="empty-symbol">
-                  <FilePlus2 size={32} strokeWidth={1.2} />
-                </div>
-                <h2>选择会话开始阅读</h2>
-                <p>选择左侧会话，查看思路、结论与工具记录。</p>
-                <div className="empty-shortcuts">
-                  <span>
-                    <span>01</span>选择一段会话
-                  </span>
-                  <span>
-                    <span>02</span>按需展开历史
-                  </span>
-                  <span>
-                    <span>03</span>
-                    {team ? "与同事讨论" : "同步给团队"}
-                  </span>
-                </div>
-                <div className="empty-caption">
-                  <Zap size={13} />
-                  长会话分轮加载，阅读更轻盈
-                </div>
-              </section>
+              <PreviewHome projects={projects} project={project} onProject={value=>{setProject(value);setHistory(['']);}} team={team} local={!!local} onScope={navigate} onSearch={focusSearch} onImport={()=>void chooseImport()} onSources={()=>setSourceOpen(true)} onFavorites={()=>navigate('favorites')} onJobs={()=>navigate('jobs')}/>
+
             )}
           </div>
         )}
@@ -1105,6 +1052,7 @@ export default function App() {
           </footer>
         </Modal>
       )}
+      {preferences && <Modal title="Customize" onClose={()=>setPreferences(false)}><div className="help-content"><h3>外观</h3><p>选择与 Cursor 工作台一致的浅色或深色外观。</p><div className="preferences-options"><button className="button" aria-pressed={theme==='light'} onClick={()=>setTheme('light')}><Sun size={15}/>浅色</button><button className="button" aria-pressed={theme==='dark'} onClick={()=>setTheme('dark')}><Moon size={15}/>深色</button></div><h3>工作区侧栏</h3><p>工作区与会话列表可以停靠在左侧或右侧。</p><button className="button" onClick={switchDock}>{dockRight?'移到左侧':'移到右侧'}</button><h3>快捷键</h3><p>Ctrl / ⌘ K 搜索会话 · Ctrl / ⌘ B 收起或显示侧栏。</p></div></Modal>}
       {help && (
         <Modal title="使用 Session Hub" onClose={() => setHelp(false)}>
           <div className="help-content">

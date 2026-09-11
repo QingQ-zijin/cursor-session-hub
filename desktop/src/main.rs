@@ -61,6 +61,17 @@ async fn native_bridge(state: State<'_, CoreState>, method: String, path: String
 }
 
 #[tauri::command]
+fn window_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
+    let window = app.get_webview_window("main").ok_or("窗口不可用")?;
+    match action.as_str() {
+        "minimize" => window.minimize(),
+        "maximize" => if window.is_maximized().map_err(|e|e.to_string())? { window.unmaximize() } else { window.maximize() },
+        "close" => window.close(),
+        _ => return Err("未知窗口操作".into()),
+    }.map_err(|e|e.to_string())
+}
+
+#[tauri::command]
 async fn open_release(app: tauri::AppHandle, url: String) -> Result<(), String> {
     let parsed = reqwest::Url::parse(&url).map_err(|_| "无效更新地址".to_string())?;
     if parsed.scheme() != "https" || parsed.host_str() != Some("github.com")
@@ -194,7 +205,7 @@ fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![native_bridge, open_release, choose_files, native_asset, save_download, subscribe_activity, unsubscribe_activity])
+        .invoke_handler(tauri::generate_handler![native_bridge, window_action, open_release, choose_files, native_asset, save_download, subscribe_activity, unsubscribe_activity])
         .setup(|app| {
             let token = uuid::Uuid::new_v4().to_string() + &uuid::Uuid::new_v4().to_string();
             let (mut events, child) = app.shell().sidecar("hub-core")?
