@@ -33,11 +33,13 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  className = '',
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
+  className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -75,7 +77,7 @@ export function Modal({
       }}
     >
       <div
-        className={"modal " + (wide ? "wide" : "")}
+        className={"modal " + (wide ? "wide " : "") + className}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -184,10 +186,7 @@ export function SourcePicker({
     }
   }
   return (
-    <Modal title="从 Cursor 同步到本地库" onClose={onClose} wide>
-      <div className="modal-copy">
-        选择需要阅读的会话。记录只读访问，入库任务按顺序处理。
-      </div>
+    <Modal title="导入会话" onClose={onClose} wide className="source-import">
       <div className="source-toolbar">
         <div className="search-field">
           <Search size={16} />
@@ -202,7 +201,8 @@ export function SourcePicker({
           />
         </div>
         <button
-          className="button"
+          className="button source-refresh"
+          aria-label="发现记录"
           onClick={() => void scan()}
           disabled={scanning}
         >
@@ -211,37 +211,27 @@ export function SourcePicker({
           ) : (
             <RefreshCw size={15} />
           )}
-          发现记录
-        </button>
-        <button
-          className="icon-button"
-          title="刷新来源列表"
-          aria-label="刷新来源列表"
-          onClick={() => void load()}
-        >
-          <RefreshCw size={15} />
+          刷新
         </button>
       </div>
-      <div className="workspace-filter">
+      <div className="workspace-filter" data-destination={destination}>
         <label>同步目标 <select aria-label="工作区同步目标" value={destination} onChange={e=>{setDestination(e.target.value as 'local'|'server');localStorage.setItem('csh-batch-destination',e.target.value)}}><option value="local">本地库</option><option value="server">团队服务器</option></select></label>
-        <button className="button" onClick={()=>void batch(null)}>同步全部工作区</button>
         <label>工作区 <select aria-label="选择 Cursor 工作区" value={workspace} onChange={e => {
           generation.current++; setSources([]); setLoading(true); setWorkspace(e.target.value); setPage(0); setCursors(['']);
         }}><option value="__all__">全部工作区</option>{workspaces.map(w => <option key={w.project} value={w.project}>{w.project || '未记录工作区'}（{w.count}）</option>)}</select></label>
         {workspaceNext !== null && <button className="text-button" onClick={() => void loadWorkspaces(workspaceNext).catch(onError)}>更多工作区</button>}
-        <label className="source-alternates"><input type="checkbox" checked={alternates} onChange={e => { setAlternates(e.target.checked); setPage(0); setCursors(['']); }} />显示同一会话的 JSONL 副本</label>
+        <label className="source-alternates"><input type="checkbox" checked={alternates} onChange={e => { setAlternates(e.target.checked); setPage(0); setCursors(['']); }} />JSONL 副本</label>
       </div>
       <div className="source-list">
-        {loading ? <div className="loading-line">正在加载工作区会话…</div> : !filtered.length ? (
+        {loading ? <div className="loading-line">加载中…</div> : !filtered.length ? (
           <div className="empty-small">
             <FilePlus2 size={25} />
-            <p>尚未发现本机记录</p>
-            <span>{scanning ? '正在发现 Cursor 记录…' : '可刷新发现结果，或导入会话文件。'}</span>
+            <p>暂无记录</p>
           </div>
         ) : (
           sourceGroups.map(group=><section key={group.project}><div className="source-workspace-heading"><h3 className="workspace-group" title={group.project}>{group.project.split(/[\\/]/).filter(Boolean).pop()||'未记录工作区'}</h3>{group.project&&<button className="text-button" onClick={()=>void batch(group.project)}>同步整个工作区</button>}</div>{[false,true].map(folded=>{
             const rows=group.items.filter(s=>foldedSource(s)===folded);const content=rows.map(s=>(
-            <label key={s.id} className="source-row">
+            <label key={s.id} className={"source-row "+(selected.has(s.id)?"selected":"")} data-state={s.status}>
               <input
                 type="checkbox"
                 checked={selected.has(s.id)}
@@ -256,13 +246,13 @@ export function SourcePicker({
               />
               <span>
                 <strong>{s.title || "未命名会话"}</strong>
-                <small title={s.path}>
+                <small className="source-kind" title={s.path}>
                   {s.source_kind === 'cursor_ide' ? 'Cursor IDE' : s.source_kind === 'cursor_cli' ? 'Cursor CLI' : '会话文件'}
                 </small>
                 <details><summary>来源信息</summary><small>{s.path}</small><small>ID：{s.native_id}</small></details>
               </span>
-              <em>{label(s.status)}</em>
-            </label>));return folded?rows.length>0&&<details className="unnamed-sources" key="unnamed"><summary>未命名及其他记录（本页 {rows.length} 条）</summary>{content}</details>:<Fragment key="named">{content}</Fragment>
+              <em className="source-status" data-state={s.status}>{label(s.status)}</em>
+            </label>));return folded?rows.length>0&&<details className="unnamed-sources" key="unnamed"><summary>其他记录 <span>{rows.length}</span></summary>{content}</details>:<Fragment key="named">{content}</Fragment>
           })}</section>)
         )}
       </div>
@@ -287,7 +277,8 @@ export function SourcePicker({
         </div>
       )}
       <footer className="modal-footer">
-        <span>已选择 {selected.size} 条 / 一次最多 10 条</span>
+        <span>已选 {selected.size} / 10</span>
+        <button className="button source-all" onClick={()=>void batch(null)}>同步全部工作区</button>
         <button
           className="button primary"
           onClick={() => void index()}
@@ -298,7 +289,7 @@ export function SourcePicker({
           ) : (
             <FilePlus2 size={15} />
           )}
-          同步到本地库
+          导入所选
         </button>
       </footer>
     </Modal>

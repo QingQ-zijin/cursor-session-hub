@@ -29,7 +29,7 @@ export function BootChrome() {
   return <Titlebar busy dock={false} toggle={noop} onDock={noop} onHelp={noop} onTheme={noop}/>;
 }
 
-export function PreviewHome(){return <section className="reader-empty preview-home" aria-label="会话预览工作台"><div className="quiet-empty"><FolderOpen size={30}/><h2>选择会话开始阅读</h2><p>从左侧工作区打开一份记录。</p></div></section>;}
+export function PreviewHome(){return <section className="reader-empty preview-home" aria-label="会话预览工作台"><div className="quiet-empty"><FolderOpen size={30}/><h2>选择会话开始阅读</h2></div></section>;}
 
 export function PaneButton({right,onClick}:{right:boolean;onClick:()=>void}) {
   const Icon=right?PanelLeft:PanelRight;

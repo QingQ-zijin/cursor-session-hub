@@ -1,4 +1,4 @@
-import {Children,isValidElement,useRef,useState} from 'react';
+import {Children,isValidElement,useRef,useState,useMemo} from 'react';
 import type {ReactNode} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -6,6 +6,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import {Check,Copy,Image as ImageIcon} from 'lucide-react';
 import {copyText,safeLink} from './utils';
+import {normalizeMath} from './math';
 function CodeFrame({children}: {children: ReactNode}) {
   const pre = useRef<HTMLPreElement>(null);
   const [copied,setCopied] = useState(false), [error,setError] = useState(false);
@@ -15,6 +16,7 @@ function CodeFrame({children}: {children: ReactNode}) {
 }
 
 export function Markdown({ text }: { text: string }) {
+  const rendered=useMemo(()=>normalizeMath(text),[text]);
   return (
     <div className="markdown">
       <ReactMarkdown
@@ -34,7 +36,7 @@ export function Markdown({ text }: { text: string }) {
           ),
         }}
       >
-        {text}
+        {rendered}
       </ReactMarkdown>
     </div>
   );

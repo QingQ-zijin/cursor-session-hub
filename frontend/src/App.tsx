@@ -492,7 +492,7 @@ export default function App() {
             ? "同步任务"
             : "成员管理";
   const selectionItems = sessions.filter((s) => selection.has(s.id));
-  async function syncWorkspace(project:string|null){try{await startWorkspaceBatch(project,batchDestination());notify('工作区批次已创建，按顺序处理');setSourceOpen(true)}catch(e){onError(e)}}
+  async function syncWorkspace(project:string|null){try{await startWorkspaceBatch(project,batchDestination());notify('批次已创建');setSourceOpen(true)}catch(e){onError(e)}}
   function focusSearch(value?: string) {
     if (nav === 'jobs' || nav === 'admin') navigate(team ? 'team' : 'local');
     if (value !== undefined) setSearch(value);
@@ -968,7 +968,6 @@ export default function App() {
           onIndexed={() => {
             refresh();
             setJobSignal((v) => v + 1);
-            notify("任务已提交，解析完成后刷新列表");
           }}
           onError={onError}
         />

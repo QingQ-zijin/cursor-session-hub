@@ -78,6 +78,9 @@ def markdown_renderer():
     renderer.use(dollarmath_plugin, allow_labels=False, double_inline=True,
                  renderer=lambda content, options: html.escape(('$$' if options['display_mode'] else '$') + content + ('$$' if options['display_mode'] else '$')))
     renderer.use(tasklists_plugin)
+    from .math_text import normalize_math
+    def delimiters(state):state.src=normalize_math(state.src)
+    renderer.core.ruler.before('block','latex_delimiters',delimiters)
     # Imported documents never cause remote image requests during export viewing.
     renderer.add_render_rule('image', lambda self, tokens, idx, options, env:
                              '<span class="missing-image">[图片：' + html.escape(tokens[idx].content) + ']</span>')

@@ -473,7 +473,7 @@ function RoundEvents({
           </article>
         )))}
       {loading && <div className="loading-line" role="status"><Loader2 size={16} className="spin" />正在加载本轮完整对话，已读取 {items.length} 条…</div>}
-      {!loading&&groups.some(g=>g.process)&&!groups.some(g=>!g.process&&g.items.some(i=>i.event.kind==='assistant'))&&<p className="inline-note">本轮未记录执行后的最终回答，可展开过程查看。</p>}
+      {!loading&&groups.some(g=>g.process)&&!groups.some(g=>!g.process&&g.items.some(i=>i.event.kind==='assistant'))&&<p className="inline-note">暂无最终回答</p>}
 
     </div>
   );
@@ -621,7 +621,7 @@ function Comments({
           maxLength={20000}
         />
         <div>
-          <span>支持 Markdown</span>
+
           {editing && (
             <button
               type="button"
@@ -803,7 +803,7 @@ export function Reader({
         revision_id: revision,
       });
       setMenu(false);
-      onNotice("导出已加入任务队列，完成后可在同步任务中下载");
+      onNotice("导出已提交");
     } catch (e) {
       onError(e);
     }
@@ -989,7 +989,6 @@ export function Reader({
             <div className="empty-small">
               <Loader2 size={24} />
               <p>正在准备会话</p>
-              <span>解析完成后点击更新，已完成的记录不受影响。</span>
               <button className="button" onClick={() => void refresh()}>
                 刷新状态
               </button>
@@ -1041,9 +1040,6 @@ export function Reader({
               )}
             </>
           )}
-          <div className="reader-footnote">
-            仅展开最近或选中的 3 轮 · 工具与大段内容按需读取
-          </div>
         </div>
         {directory && !comments && <aside className="round-rail" aria-label="轮次目录">
           <div className="rail-tabs"><button className={!trash?'active':''} onClick={()=>{setTrash(false);setDirHistory([''])}}>更早的会话</button><button className={trash?'active':''} onClick={()=>{setTrash(true);setDirHistory([''])}}><Trash2 size={13}/>回收站</button><button className="rail-close" aria-label="关闭轮次目录" onClick={()=>setDirectory(false)}><X size={14}/></button></div>

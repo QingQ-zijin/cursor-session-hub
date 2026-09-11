@@ -1,2 +1,2 @@
 """Cursor Session Hub: local-first, bounded transcript collaboration."""
-__version__ = '1.5.3'
+__version__ = '1.5.5'

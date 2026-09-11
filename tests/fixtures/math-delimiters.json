@@ -1,0 +1,14 @@
+[
+  {"name":"inline","source":"结果 \\(x^2 + y^2 = z^2\\)。","expected":"结果 $x^2 + y^2 = z^2$。"},
+  {"name":"display","source":"\\[\\frac{a}{b} + \\sqrt{c}\\]","expected":"\n\n$$\n\\frac{a}{b} + \\sqrt{c}\n$$\n\n"},
+  {"name":"multiline","source":"\\[\na+b=c\n\\]","expected":"\n\n$$\na+b=c\n$$\n\n"},
+  {"name":"recovered bracket line","source":"[ x \\sim \\mathcal{N}(0,1) ]","expected":"\n\n$$\nx \\sim \\mathcal{N}(0,1)\n$$\n\n\n"},
+  {"name":"existing math","source":"$x$ and $$y$$ and price $5","expected":"$x$ and $$y$$ and price $5"},
+  {"name":"inline code","source":"`\\(x\\)` and \\(y\\)","expected":"`\\(x\\)` and $y$"},
+  {"name":"fenced code","source":"```tex\n\\[x\\]\n```\n\\(y\\)","expected":"```tex\n\\[x\\]\n```\n$y$"},
+  {"name":"tilde code","source":"~~~tex\n\\(x\\)\n~~~\n","expected":"~~~tex\n\\(x\\)\n~~~\n"},
+  {"name":"indented code","source":"    \\(x\\)\n","expected":"    \\(x\\)\n"},
+  {"name":"ordinary brackets","source":"[not math]\n[link](https://example.com/a_(b))\n","expected":"[not math]\n[link](https://example.com/a_(b))\n"},
+  {"name":"escaped literal","source":"\\\\(literal\\\\)","expected":"\\\\(literal\\\\)"},
+  {"name":"unmatched","source":"open \\(x","expected":"open \\(x"}
+]

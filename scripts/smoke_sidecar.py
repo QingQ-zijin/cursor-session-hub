@@ -19,7 +19,7 @@ def main():
  out=ROOT/'.runtime';out.mkdir(exist_ok=True)
  with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as td:
   home=Path(td);token=secrets.token_urlsafe(32)
-  sample=home/'示例.jsonl';sample.write_text(json.dumps({'role':'user','message':{'content':[{'type':'text','text':'你好，请检查这个记录。'}]}},ensure_ascii=False)+'\n'+json.dumps({'role':'assistant','message':{'content':[{'type':'text','text':'已完成。\n\n```python\nprint(1)\n```'}]}},ensure_ascii=False)+'\n',encoding='utf-8')
+  sample=home/'示例.jsonl';sample.write_text(json.dumps({'role':'user','message':{'content':[{'type':'text','text':'你好，请检查这个记录。'}]}},ensure_ascii=False)+'\n'+json.dumps({'role':'assistant','message':{'content':[{'type':'text','text':'已完成。\n\n```python\nprint(1)\n```\n\n\\(x^2\\)\n\n\\[\\frac{1}{2}\\]'}]}},ensure_ascii=False)+'\n',encoding='utf-8')
   env=dict(os.environ,CSH_HOME=str(home),CSH_LOCAL_TOKEN=token,CSH_MIN_FREE_BYTES='1048576',CSH_MIN_FREE_RATIO='0',CSH_MIGRATE_LEGACY='0')
   log=(home/'stderr.log').open('w',encoding='utf-8')
   # Uvicorn access logs go to stdout. An unread PIPE fills quickly on Windows
@@ -70,7 +70,7 @@ def main():
     document=home/'exports'/(exported['job']['id']+suffix)
     value=document.read_text(encoding='utf-8')
     assert 'print(1)' in value and '已完成' in value
-    if fmt=='html':assert 'renderMathInElement' in value and '<code class="language-python">' in value
+    if fmt=='html':assert 'renderMathInElement' in value and '<code class="language-python">' in value and '$x^2$' in value and '$$\\frac{1}{2}$$' in value
     again=call('/imports/path',{'path':str(document)})
     wait_job(again['job']['id'])
     assert call('/sessions/'+again['session_id'])['event_count']==2
